@@ -1,0 +1,398 @@
+# Codec Architecture
+
+## Overview
+
+Codec is a boundary serialization library for Go. It sits at the edge of a system—the first thing data encounters on ingress, the last thing before egress. Data flows in from users, databases, and distributed event systems, and flows out to similar destinations.
+
+The library provides primitives for context-aware field transformation during serialization, enabling workflows required by security-conscious verticals like healthcare (HIPAA) and finance (PCI-DSS).
+
+## Mental Model
+
+### The Problem
+
+Traditional serialization is context-free: marshal a struct, get bytes. But real systems need context-aware transformation:
+
+- A password should be **hashed** when received from a user, **redacted** when returned
+- An SSN should be **encrypted** when stored, **decrypted** when loaded, **masked** when displayed
+- An email should be **encrypted** at rest, **masked** on output
+
+The same field requires different treatment depending on:
+1. **Direction**: Is data coming in (ingress) or going out (egress)?
+2. **Destination**: Is it storage, a user, or an external service?
+
+### Contexts
+
+Four contexts representing the boundaries data crosses:
+
+| Context | Direction | Description |
+|---------|-----------|-------------|
+| `receive` | Ingress | Accepting from external source (API request, event, webhook) |
+| `load` | Ingress | Reading from persistent storage (database, cache) |
+| `store` | Egress | Writing to persistent storage |
+| `send` | Egress | Returning to external destination (API response, event publish) |
+
+```
+                    ┌─────────────────────────┐
+                    │        System           │
+                    │                         │
+   receive          │                         │          send
+   ─────────────────►       (internal)       ─────────────────►
+   (users, events)  │                         │   (users, events)
+                    │                         │
+   load             │                         │          store
+   ─────────────────►                        ─────────────────►
+   (from database)  │                         │   (to database)
+                    │                         │
+                    └─────────────────────────┘
+```
+
+### Actions
+
+Five transformations applied to field values:
+
+| Action | Direction | Reversible | Purpose |
+|--------|-----------|------------|---------|
+| `hash` | Ingress | ✗ | One-way transform (passwords) |
+| `decrypt` | Ingress | ✓ | Restore encrypted data |
+| `encrypt` | Egress | ✓ | Confidentiality at rest |
+| `mask` | Egress | ✗ | Partial redaction preserving format |
+| `redact` | Egress | ✗ | Full replacement |
+
+### Valid Context-Action Combinations
+
+| Context | Valid Actions |
+|---------|---------------|
+| `receive` | `hash` |
+| `load` | `decrypt` |
+| `store` | `encrypt` |
+| `send` | `mask`, `redact` |
+
+### Tag Syntax
+
+Field behavior is declared via struct tags:
+
+```
+{context}.{action}:"{value}"
+```
+
+- For `hash`, `encrypt`, `decrypt`, `mask`: value is a capability constant
+- For `redact`: value is the replacement string
+
+Example:
+
+```go
+type Patient struct {
+    Password string `json:"password"
+                    receive.hash:"argon2"
+                    send.redact:"***"`
+
+    SSN string `json:"ssn"
+               store.encrypt:"aes"
+               load.decrypt:"aes"
+               send.mask:"ssn"`
+
+    Email string `json:"email"
+                 store.encrypt:"aes"
+                 load.decrypt:"aes"
+                 send.mask:"email"`
+}
+```
+
+### Context Matrix
+
+For the Patient type above:
+
+| Field | receive | store | load | send |
+|-------|---------|-------|------|------|
+| Password | hash(argon2) | — | — | redact |
+| SSN | — | encrypt(aes) | decrypt(aes) | mask(ssn) |
+| Email | — | encrypt(aes) | decrypt(aes) | mask(email) |
+
+## Capability Types
+
+All capabilities are constrained to predefined constants—no arbitrary strings, no typo risk.
+
+### Encryption Algorithms
+
+```go
+type EncryptAlgo string
+const (
+    EncryptAES      EncryptAlgo = "aes"       // AES-GCM
+    EncryptRSA      EncryptAlgo = "rsa"       // RSA-OAEP
+    EncryptEnvelope EncryptAlgo = "envelope"  // Envelope encryption
+)
+```
+
+### Hash Algorithms
+
+```go
+type HashAlgo string
+const (
+    HashArgon2 HashAlgo = "argon2"  // Password hashing (salted)
+    HashBcrypt HashAlgo = "bcrypt"  // Password hashing (salted)
+    HashSHA256 HashAlgo = "sha256"  // Deterministic
+    HashSHA512 HashAlgo = "sha512"  // Deterministic
+)
+```
+
+### Mask Types
+
+```go
+type MaskType string
+const (
+    MaskSSN   MaskType = "ssn"    // ***-**-6789
+    MaskEmail MaskType = "email"  // a***@example.com
+    MaskPhone MaskType = "phone"  // (***) ***-4567
+    MaskCard  MaskType = "card"   // ************1111
+    MaskIP    MaskType = "ip"     // 192.168.xxx.xxx
+    MaskUUID  MaskType = "uuid"   // 550e8400-****-****-****-************
+    MaskIBAN  MaskType = "iban"   // GB82**************5432
+    MaskName  MaskType = "name"   // J*** S****
+)
+```
+
+## Architecture
+
+### Core Components
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        Processor[T]                          │
+│                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   Codec     │  │  Sentinel   │  │   Capabilities      │  │
+│  │ (encode/    │  │ (metadata   │  │ (encryptors,        │  │
+│  │  decode)    │  │  extraction)│  │  hashers, maskers)  │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │              Per-Context Field Plans                    ││
+│  │  receive: [hash fields]                                 ││
+│  │  load:    [decrypt fields]                              ││
+│  │  store:   [encrypt fields]                              ││
+│  │  send:    [mask fields, redact fields]                  ││
+│  └─────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Processing Flow
+
+**Receive (ingress from external):**
+```
+Bytes → Unmarshal → [Hash] → *T
+```
+
+**Load (ingress from storage):**
+```
+Bytes → Unmarshal → [Decrypt] → *T
+```
+
+**Store (egress to storage):**
+```
+*T → Clone → [Encrypt] → Marshal → Bytes
+```
+
+**Send (egress to external):**
+```
+*T → Clone → [Mask] → [Redact] → Marshal → Bytes
+```
+
+### Capability Interfaces
+
+```go
+// Encryptor provides symmetric or asymmetric encryption.
+type Encryptor interface {
+    Encrypt(plaintext []byte) ([]byte, error)
+    Decrypt(ciphertext []byte) ([]byte, error)
+}
+
+// Hasher provides one-way hashing.
+type Hasher interface {
+    Hash(plaintext []byte) (string, error)
+}
+
+// Masker provides format-preserving partial redaction.
+type Masker interface {
+    Mask(value string) string
+}
+```
+
+### Override Interfaces
+
+Types can bypass reflection by implementing action-specific interfaces:
+
+```go
+// Encryptable bypasses reflection for store.encrypt actions.
+type Encryptable interface {
+    Encrypt(encryptors map[EncryptAlgo]Encryptor) error
+}
+
+// Decryptable bypasses reflection for load.decrypt actions.
+type Decryptable interface {
+    Decrypt(encryptors map[EncryptAlgo]Encryptor) error
+}
+
+// Hashable bypasses reflection for receive.hash actions.
+type Hashable interface {
+    Hash(hashers map[HashAlgo]Hasher) error
+}
+
+// Maskable bypasses reflection for send.mask actions.
+type Maskable interface {
+    Mask(maskers map[MaskType]Masker) error
+}
+
+// Redactable bypasses reflection for send.redact actions.
+type Redactable interface {
+    Redact() error
+}
+```
+
+### Auto-Registration
+
+| Capability | Registration | User Responsibility |
+|------------|--------------|---------------------|
+| Maskers | Automatic | None—all mask types built-in |
+| Hashers | Automatic | None—all hash algorithms built-in |
+| Encryptors | Manual | Provide key per algorithm used |
+
+### Registration API
+
+```go
+// Create processor with encryption key
+proc, err := codec.NewProcessor[Patient](
+    json.Codec(),
+    codec.WithKey(codec.EncryptAES, aesKey),
+)
+
+// Escape hatch for custom implementations
+codec.WithEncryptor(codec.EncryptAES, customEncryptor)
+codec.WithHasher(codec.HashArgon2, customHasher)
+codec.WithMasker(codec.MaskSSN, customMasker)
+```
+
+### Context-Specific Operations
+
+```go
+// Receiving from API (applies receive.hash)
+patient, err := proc.Receive(requestBody)
+
+// Storing to database (applies store.encrypt)
+data, err := proc.Store(patient)
+
+// Loading from database (applies load.decrypt)
+patient, err := proc.Load(dbRow)
+
+// Sending to API (applies send.mask, send.redact)
+data, err := proc.Send(patient)
+```
+
+## Design Principles
+
+1. **Declarative**: Behavior declared in struct tags, co-located with type definition
+2. **Fail-Fast**: Invalid tag values detected at processor creation, not runtime
+3. **Non-Destructive**: Original objects never mutated; clone before transform
+4. **Context-Aware**: Same field, different treatment based on data flow direction
+5. **Constrained**: Capability values are predefined constants, not arbitrary strings
+6. **Batteries Included**: Hashers and maskers auto-registered; only encryption keys required
+7. **Escape Hatches**: Override interfaces for custom logic or performance optimization
+8. **Reflection Now, Codegen Later**: Tag syntax supports both execution models
+
+## Use Cases
+
+### Healthcare (HIPAA)
+
+```go
+type PatientRecord struct {
+    MRN string `json:"mrn"
+               store.encrypt:"aes"
+               load.decrypt:"aes"
+               send.mask:"uuid"`
+
+    Diagnosis string `json:"diagnosis"
+                     store.encrypt:"aes"
+                     load.decrypt:"aes"
+                     send.redact:"[CLINICAL]"`
+
+    SSN string `json:"ssn"
+               store.encrypt:"aes"
+               load.decrypt:"aes"
+               send.mask:"ssn"`
+}
+```
+
+### Finance (PCI-DSS)
+
+```go
+type PaymentMethod struct {
+    CardNumber string `json:"card_number"
+                      store.encrypt:"aes"
+                      load.decrypt:"aes"
+                      send.mask:"card"`
+
+    CVV string `json:"cvv"
+               store.redact:""
+               send.redact:""`
+
+    PIN string `json:"pin"
+               receive.hash:"argon2"
+               send.redact:"***"`
+}
+```
+
+### User Authentication
+
+```go
+type User struct {
+    Email string `json:"email"
+                 store.encrypt:"aes"
+                 load.decrypt:"aes"
+                 send.mask:"email"`
+
+    Password string `json:"password"
+                    receive.hash:"argon2"
+                    send.redact:"***"`
+
+    APIKey string `json:"api_key"
+                  store.encrypt:"aes"
+                  load.decrypt:"aes"
+                  send.redact:"[HIDDEN]"`
+}
+```
+
+## Collection Handling
+
+Actions apply to collection elements:
+
+### Slice of Strings
+
+```go
+type User struct {
+    Emails []string `send.mask:"email"`  // masks each element
+}
+```
+
+### Slice of Structs
+
+```go
+type Contact struct {
+    Phone string `send.mask:"phone"`
+}
+
+type User struct {
+    Contacts []Contact  // recurses into each element
+}
+```
+
+### Map Values
+
+```go
+type User struct {
+    Phones map[string]string `send.mask:"phone"`  // masks each value
+}
+```
+
+## References
+
+- [Sentinel](https://github.com/zoobzio/sentinel) - Struct metadata extraction
+- [Capitan](https://github.com/zoobzio/capitan) - Event signaling
