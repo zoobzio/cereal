@@ -1,10 +1,11 @@
 package benchmarks
 
 import (
+	"context"
 	"testing"
 
 	"github.com/zoobzio/codec"
-	"github.com/zoobzio/codec/pkg/json"
+	"github.com/zoobzio/codec/json"
 	codectest "github.com/zoobzio/codec/testing"
 )
 
@@ -14,15 +15,13 @@ func BenchmarkProcessor_Store_NoTransformation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Store(user)
+		_, _ = proc.Store(context.Background(), user)
 	}
 }
 
 func BenchmarkProcessor_Store_WithEncryption(b *testing.B) {
-	proc, _ := codec.NewProcessor[codectest.SanitizedUser](
-		json.New(),
-		codec.WithKey(codec.EncryptAES, codectest.TestKey()),
-	)
+	proc, _ := codec.NewProcessor[codectest.SanitizedUser](json.New())
+	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
 
 	user := &codectest.SanitizedUser{
 		ID:       "123",
@@ -34,15 +33,13 @@ func BenchmarkProcessor_Store_WithEncryption(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Store(user)
+		_, _ = proc.Store(context.Background(), user)
 	}
 }
 
 func BenchmarkProcessor_Load_WithDecryption(b *testing.B) {
-	proc, _ := codec.NewProcessor[codectest.SanitizedUser](
-		json.New(),
-		codec.WithKey(codec.EncryptAES, codectest.TestKey()),
-	)
+	proc, _ := codec.NewProcessor[codectest.SanitizedUser](json.New())
+	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
 
 	user := &codectest.SanitizedUser{
 		ID:       "123",
@@ -52,19 +49,17 @@ func BenchmarkProcessor_Load_WithDecryption(b *testing.B) {
 		Note:     "internal note",
 	}
 
-	data, _ := proc.Store(user)
+	data, _ := proc.Store(context.Background(), user)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Load(data)
+		_, _ = proc.Load(context.Background(), data)
 	}
 }
 
 func BenchmarkProcessor_Send_WithMaskingRedaction(b *testing.B) {
-	proc, _ := codec.NewProcessor[codectest.SanitizedUser](
-		json.New(),
-		codec.WithKey(codec.EncryptAES, codectest.TestKey()),
-	)
+	proc, _ := codec.NewProcessor[codectest.SanitizedUser](json.New())
+	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
 
 	user := &codectest.SanitizedUser{
 		ID:       "123",
@@ -76,7 +71,7 @@ func BenchmarkProcessor_Send_WithMaskingRedaction(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Send(user)
+		_, _ = proc.Send(context.Background(), user)
 	}
 }
 

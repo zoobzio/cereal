@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/zoobzio/codec"
-	"github.com/zoobzio/codec/pkg/json"
+	"github.com/zoobzio/codec/json"
 )
 
 type CacheTestUser struct {

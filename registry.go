@@ -19,7 +19,11 @@ var (
 // Use returns a cached processor or builds a new one.
 // The processor is cached by type and codec content type.
 // T must implement Cloner[T].
-func Use[T Cloner[T]](codec Codec, opts ...ProcessorOption) (*Processor[T], error) {
+//
+// Configure the returned processor with SetEncryptor, SetHasher, and SetMasker
+// as needed. These methods are safe to call on a cached processor and can be
+// used for key rotation.
+func Use[T Cloner[T]](codec Codec) (*Processor[T], error) {
 	typ := reflect.TypeFor[T]()
 	key := registryKey{typ: typ, contentType: codec.ContentType()}
 
@@ -40,7 +44,7 @@ func Use[T Cloner[T]](codec Codec, opts ...ProcessorOption) (*Processor[T], erro
 		return cached.(*Processor[T]), nil
 	}
 
-	processor, err := NewProcessor[T](codec, opts...)
+	processor, err := NewProcessor[T](codec)
 	if err != nil {
 		return nil, err
 	}

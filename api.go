@@ -80,12 +80,13 @@
 //
 // # Codec Providers
 //
-// The following codec implementations are available in pkg/:
+// The following codec implementations are available as submodules:
 //
-//   - pkg/json - JSON encoding (application/json)
-//   - pkg/xml - XML encoding (application/xml)
-//   - pkg/yaml - YAML encoding (application/yaml)
-//   - pkg/msgpack - MessagePack encoding (application/msgpack)
+//   - json - JSON encoding (application/json)
+//   - xml - XML encoding (application/xml)
+//   - yaml - YAML encoding (application/yaml)
+//   - msgpack - MessagePack encoding (application/msgpack)
+//   - bson - BSON encoding (application/bson)
 //
 // # Encryption Algorithms
 //
@@ -117,3 +118,95 @@
 //   - iban: GB82WEST12345698765432 → GB82**************5432
 //   - name: John Smith → J*** S****
 package codec
+
+// Cloner allows types to provide deep copy logic.
+// Implementing this interface is required for use with Serializer.
+//
+// The Clone method must return a deep copy where modifications to the clone
+// do not affect the original value. For types containing pointers, slices, or maps,
+// ensure these are also copied to achieve true isolation.
+//
+// For simple value types with no pointers, slices, or maps, Clone can simply return
+// the receiver value:
+//
+//	func (u User) Clone() User { return u }
+//
+// For types with reference fields, ensure deep copying:
+//
+//	func (o Order) Clone() Order {
+//	    items := make([]Item, len(o.Items))
+//	    copy(items, o.Items)
+//	    return Order{ID: o.ID, Items: items}
+//	}
+type Cloner[T any] interface {
+	Clone() T
+}
+
+// Codec provides content-type aware marshaling.
+type Codec interface {
+	// ContentType returns the MIME type for this codec (e.g., "application/json").
+	ContentType() string
+
+	// Marshal encodes v into bytes.
+	Marshal(v any) ([]byte, error)
+
+	// Unmarshal decodes data into v.
+	Unmarshal(data []byte, v any) error
+}
+
+// Override interfaces allow types to bypass reflection-based processing.
+// When a type implements one of these interfaces, the Processor calls the
+// interface method instead of using reflection to transform fields.
+//
+// This provides two benefits:
+// 1. Performance: Avoid reflection overhead for hot paths
+// 2. Custom logic: Implement transformations that can't be expressed via tags
+//
+// These interfaces are designed for codegen: a code generator can implement
+// these methods based on struct tags, providing compile-time safety and
+// optimal performance.
+
+// Encryptable bypasses reflection for store.encrypt actions.
+// Implement this to handle all encryption for a type.
+type Encryptable interface {
+	// Encrypt transforms the receiver's fields that require encryption.
+	// The encryptors map contains all registered encryptors keyed by algorithm.
+	// The receiver is a clone, so mutations are safe.
+	Encrypt(encryptors map[EncryptAlgo]Encryptor) error
+}
+
+// Decryptable bypasses reflection for load.decrypt actions.
+// Implement this to handle all decryption for a type.
+type Decryptable interface {
+	// Decrypt transforms the receiver's fields that require decryption.
+	// The encryptors map contains all registered encryptors keyed by algorithm.
+	// Called on freshly unmarshaled data.
+	Decrypt(encryptors map[EncryptAlgo]Encryptor) error
+}
+
+// Hashable bypasses reflection for receive.hash actions.
+// Implement this to handle all hashing for a type.
+type Hashable interface {
+	// Hash transforms the receiver's fields that require hashing.
+	// The hashers map contains all registered hashers keyed by algorithm.
+	// Called on freshly unmarshaled data.
+	Hash(hashers map[HashAlgo]Hasher) error
+}
+
+// Maskable bypasses reflection for send.mask actions.
+// Implement this to handle all masking for a type.
+type Maskable interface {
+	// Mask transforms the receiver's fields that require masking.
+	// The maskers map contains all registered maskers keyed by type.
+	// The receiver is a clone, so mutations are safe.
+	Mask(maskers map[MaskType]Masker) error
+}
+
+// Redactable bypasses reflection for send.redact actions.
+// Implement this to handle all redaction for a type.
+type Redactable interface {
+	// Redact transforms the receiver's fields that require redaction.
+	// The receiver is a clone, so mutations are safe.
+	// Redaction values are typically hardcoded based on struct tag values.
+	Redact() error
+}

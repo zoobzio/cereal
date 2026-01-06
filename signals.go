@@ -35,24 +35,23 @@ var (
 )
 
 // emitProcessorCreated emits an event when a processor is created.
-func emitProcessorCreated(contentType, typeName string) {
-	capitan.Emit(context.Background(), SignalProcessorCreated,
+func emitProcessorCreated(ctx context.Context, contentType, typeName string) {
+	capitan.Emit(ctx, SignalProcessorCreated,
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
 	)
 }
 
 // emitReceiveStart emits an event when receive begins.
-func emitReceiveStart(contentType, typeName string) {
-	capitan.Emit(context.Background(), SignalReceiveStart,
+func emitReceiveStart(ctx context.Context, contentType, typeName string) {
+	capitan.Emit(ctx, SignalReceiveStart,
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
 	)
 }
 
 // emitReceiveComplete emits an event when receive finishes.
-func emitReceiveComplete(contentType, typeName string, duration time.Duration, hashed int, err error) {
-	ctx := context.Background()
+func emitReceiveComplete(ctx context.Context, contentType, typeName string, duration time.Duration, hashed int, err error) {
 	fields := []capitan.Field{
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
@@ -68,16 +67,15 @@ func emitReceiveComplete(contentType, typeName string, duration time.Duration, h
 }
 
 // emitLoadStart emits an event when load begins.
-func emitLoadStart(contentType, typeName string) {
-	capitan.Emit(context.Background(), SignalLoadStart,
+func emitLoadStart(ctx context.Context, contentType, typeName string) {
+	capitan.Emit(ctx, SignalLoadStart,
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
 	)
 }
 
 // emitLoadComplete emits an event when load finishes.
-func emitLoadComplete(contentType, typeName string, duration time.Duration, decrypted int, err error) {
-	ctx := context.Background()
+func emitLoadComplete(ctx context.Context, contentType, typeName string, duration time.Duration, decrypted int, err error) {
 	fields := []capitan.Field{
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
@@ -93,16 +91,15 @@ func emitLoadComplete(contentType, typeName string, duration time.Duration, decr
 }
 
 // emitStoreStart emits an event when store begins.
-func emitStoreStart(contentType, typeName string) {
-	capitan.Emit(context.Background(), SignalStoreStart,
+func emitStoreStart(ctx context.Context, contentType, typeName string) {
+	capitan.Emit(ctx, SignalStoreStart,
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
 	)
 }
 
 // emitStoreComplete emits an event when store finishes.
-func emitStoreComplete(contentType, typeName string, size int, duration time.Duration, encrypted int, err error) {
-	ctx := context.Background()
+func emitStoreComplete(ctx context.Context, contentType, typeName string, size int, duration time.Duration, encrypted int, err error) {
 	fields := []capitan.Field{
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
@@ -119,16 +116,15 @@ func emitStoreComplete(contentType, typeName string, size int, duration time.Dur
 }
 
 // emitSendStart emits an event when send begins.
-func emitSendStart(contentType, typeName string) {
-	capitan.Emit(context.Background(), SignalSendStart,
+func emitSendStart(ctx context.Context, contentType, typeName string) {
+	capitan.Emit(ctx, SignalSendStart,
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),
 	)
 }
 
 // emitSendComplete emits an event when send finishes.
-func emitSendComplete(contentType, typeName string, size int, duration time.Duration, masked, redacted int, err error) {
-	ctx := context.Background()
+func emitSendComplete(ctx context.Context, contentType, typeName string, size int, duration time.Duration, masked, redacted int, err error) {
 	fields := []capitan.Field{
 		KeyContentType.Field(contentType),
 		KeyTypeName.Field(typeName),

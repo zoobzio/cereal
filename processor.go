@@ -1,9 +1,12 @@
 package codec
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"reflect"
+	"sync"
+	"time"
 
 	"github.com/zoobzio/sentinel"
 )
@@ -19,13 +22,26 @@ func init() {
 
 // Processor provides context-aware serialization with field transformation.
 // Use Receive/Load for ingress and Store/Send for egress.
+//
+// Processors are safe for concurrent use. Configuration methods (SetEncryptor,
+// SetHasher, SetMasker) may be called at any time to update or rotate keys.
+//
+// Validation occurs automatically on first operation. Configure all required
+// handlers before the first call to Receive, Load, Store, or Send.
 type Processor[T Cloner[T]] struct {
-	codec      Codec
+	codec Codec
+
+	// Mutable configuration protected by mu
+	mu         sync.RWMutex
 	encryptors map[EncryptAlgo]Encryptor
 	hashers    map[HashAlgo]Hasher
 	maskers    map[MaskType]Masker
 
-	// Per-context field plans
+	// Validation state (runs once on first operation)
+	validateOnce sync.Once
+	validateErr  error
+
+	// Per-context field plans (immutable after construction)
 	receivePlans receivePlan
 	loadPlans    loadPlan
 	storePlans   storePlan
@@ -67,107 +83,22 @@ type processorFieldPlan struct {
 	isMap      bool   // true if field is map[K]string
 }
 
-// ProcessorOption configures a Processor.
-type ProcessorOption func(*processorConfig)
-
-// processorConfig holds configuration for processor creation.
-type processorConfig struct {
-	encryptors map[EncryptAlgo]Encryptor
-	hashers    map[HashAlgo]Hasher
-	maskers    map[MaskType]Masker
-}
-
-func newProcessorConfig() *processorConfig {
-	return &processorConfig{
-		encryptors: make(map[EncryptAlgo]Encryptor),
-		hashers:    builtinHashers(),
-		maskers:    builtinMaskers(),
-	}
-}
-
-// WithKey registers an encryption key for the given algorithm.
-// This creates the appropriate encryptor based on the algorithm.
-func WithKey(algo EncryptAlgo, key []byte) ProcessorOption {
-	return func(cfg *processorConfig) {
-		var enc Encryptor
-		var err error
-
-		switch algo {
-		case EncryptAES:
-			enc, err = AES(key)
-		case EncryptEnvelope:
-			enc, err = Envelope(key)
-		default:
-			// RSA requires key pair, not raw bytes
-			return
-		}
-
-		if err == nil {
-			cfg.encryptors[algo] = enc
-		}
-	}
-}
-
-// WithRSAKey registers an RSA key pair for encryption.
-func WithRSAKey(pub interface{}, priv interface{}) ProcessorOption {
-	return func(cfg *processorConfig) {
-		// Type assertion for RSA keys
-		// This accepts both *rsa.PublicKey and *rsa.PrivateKey
-		var pubKey interface{}
-		var privKey interface{}
-
-		if pub != nil {
-			pubKey = pub
-		}
-		if priv != nil {
-			privKey = priv
-		}
-
-		// We need to import crypto/rsa, but to avoid circular deps,
-		// we'll accept interface{} and let the RSA function handle it
-		// For now, this is a placeholder - users should use WithEncryptor directly
-		_ = pubKey
-		_ = privKey
-	}
-}
-
-// WithProcessorEncryptor registers a custom encryptor for the given algorithm.
-func WithProcessorEncryptor(algo EncryptAlgo, enc Encryptor) ProcessorOption {
-	return func(cfg *processorConfig) {
-		cfg.encryptors[algo] = enc
-	}
-}
-
-// WithHasher registers a custom hasher for the given algorithm.
-func WithHasher(algo HashAlgo, h Hasher) ProcessorOption {
-	return func(cfg *processorConfig) {
-		cfg.hashers[algo] = h
-	}
-}
-
-// WithMasker registers a custom masker for the given type.
-func WithMasker(mt MaskType, m Masker) ProcessorOption {
-	return func(cfg *processorConfig) {
-		cfg.maskers[mt] = m
-	}
-}
-
 // NewProcessor creates a new Processor for type T.
-// Returns an error if required capabilities are not registered.
-func NewProcessor[T Cloner[T]](codec Codec, opts ...ProcessorOption) (*Processor[T], error) {
-	cfg := newProcessorConfig()
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
+//
+// The processor is created with builtin hashers and maskers. Encryptors must
+// be configured via SetEncryptor before using Store/Load operations on fields
+// with encryption tags.
+//
+// Use Validate() to check that all required capabilities are configured.
+func NewProcessor[T Cloner[T]](codec Codec) (*Processor[T], error) {
 	// Scan type metadata
 	spec := sentinel.Scan[T]()
 
 	p := &Processor[T]{
 		codec:      codec,
-		encryptors: cfg.encryptors,
-		hashers:    cfg.hashers,
-		maskers:    cfg.maskers,
+		encryptors: make(map[EncryptAlgo]Encryptor),
+		hashers:    builtinHashers(),
+		maskers:    builtinMaskers(),
 		typeName:   spec.TypeName,
 	}
 
@@ -176,12 +107,55 @@ func NewProcessor[T Cloner[T]](codec Codec, opts ...ProcessorOption) (*Processor
 		return nil, err
 	}
 
-	// Validate all required capabilities are registered
-	if err := p.validateCapabilities(); err != nil {
-		return nil, err
-	}
-
+	emitProcessorCreated(context.Background(), codec.ContentType(), spec.TypeName)
 	return p, nil
+}
+
+// SetEncryptor registers an encryptor for the given algorithm.
+// Returns the processor for chaining. Safe for concurrent use.
+func (p *Processor[T]) SetEncryptor(algo EncryptAlgo, enc Encryptor) *Processor[T] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.encryptors[algo] = enc
+	return p
+}
+
+// SetHasher registers a hasher for the given algorithm.
+// Returns the processor for chaining. Safe for concurrent use.
+func (p *Processor[T]) SetHasher(algo HashAlgo, h Hasher) *Processor[T] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.hashers[algo] = h
+	return p
+}
+
+// SetMasker registers a masker for the given type.
+// Returns the processor for chaining. Safe for concurrent use.
+func (p *Processor[T]) SetMasker(mt MaskType, m Masker) *Processor[T] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.maskers[mt] = m
+	return p
+}
+
+// Validate checks that all required capabilities are configured.
+// Returns an error if any field's required encryptor, hasher, or masker
+// is not registered.
+//
+// Validation also runs automatically on first operation. Calling Validate
+// explicitly allows catching configuration errors at startup.
+func (p *Processor[T]) Validate() error {
+	return p.ensureValidated()
+}
+
+// ensureValidated runs validation once and caches the result.
+func (p *Processor[T]) ensureValidated() error {
+	p.validateOnce.Do(func() {
+		p.mu.RLock()
+		defer p.mu.RUnlock()
+		p.validateErr = p.validateCapabilities()
+	})
+	return p.validateErr
 }
 
 // buildFieldPlans recursively processes fields and nested structs.
@@ -358,36 +332,52 @@ func (p *Processor[T]) parseContextTags(tag reflect.StructTag) map[string]string
 }
 
 // validateCapabilities ensures all required capabilities are registered.
+// Skips validation for transform types where the type implements override interfaces.
 func (p *Processor[T]) validateCapabilities() error {
-	// Validate hashers
-	for _, plan := range p.receivePlans.hashFields {
-		algo := HashAlgo(plan.tagVal)
-		if _, ok := p.hashers[algo]; !ok {
-			return fmt.Errorf("missing hasher for algorithm %q (field %s)", plan.tagVal, plan.name)
+	// Check which override interfaces are implemented
+	var zero T
+	_, hasHashable := any(&zero).(Hashable)
+	_, hasDecryptable := any(&zero).(Decryptable)
+	_, hasEncryptable := any(&zero).(Encryptable)
+	_, hasMaskable := any(&zero).(Maskable)
+
+	// Validate hashers (skip if Hashable implemented)
+	if !hasHashable {
+		for _, plan := range p.receivePlans.hashFields {
+			algo := HashAlgo(plan.tagVal)
+			if _, ok := p.hashers[algo]; !ok {
+				return fmt.Errorf("missing hasher for algorithm %q (field %s)", plan.tagVal, plan.name)
+			}
 		}
 	}
 
-	// Validate decryptors
-	for _, plan := range p.loadPlans.decryptFields {
-		algo := EncryptAlgo(plan.tagVal)
-		if _, ok := p.encryptors[algo]; !ok {
-			return fmt.Errorf("missing encryptor for algorithm %q (field %s)", plan.tagVal, plan.name)
+	// Validate decryptors (skip if Decryptable implemented)
+	if !hasDecryptable {
+		for _, plan := range p.loadPlans.decryptFields {
+			algo := EncryptAlgo(plan.tagVal)
+			if _, ok := p.encryptors[algo]; !ok {
+				return fmt.Errorf("missing encryptor for algorithm %q (field %s)", plan.tagVal, plan.name)
+			}
 		}
 	}
 
-	// Validate encryptors
-	for _, plan := range p.storePlans.encryptFields {
-		algo := EncryptAlgo(plan.tagVal)
-		if _, ok := p.encryptors[algo]; !ok {
-			return fmt.Errorf("missing encryptor for algorithm %q (field %s)", plan.tagVal, plan.name)
+	// Validate encryptors (skip if Encryptable implemented)
+	if !hasEncryptable {
+		for _, plan := range p.storePlans.encryptFields {
+			algo := EncryptAlgo(plan.tagVal)
+			if _, ok := p.encryptors[algo]; !ok {
+				return fmt.Errorf("missing encryptor for algorithm %q (field %s)", plan.tagVal, plan.name)
+			}
 		}
 	}
 
-	// Validate maskers
-	for _, plan := range p.sendPlans.maskFields {
-		mt := MaskType(plan.tagVal)
-		if _, ok := p.maskers[mt]; !ok {
-			return fmt.Errorf("missing masker for type %q (field %s)", plan.tagVal, plan.name)
+	// Validate maskers (skip if Maskable implemented)
+	if !hasMaskable {
+		for _, plan := range p.sendPlans.maskFields {
+			mt := MaskType(plan.tagVal)
+			if _, ok := p.maskers[mt]; !ok {
+				return fmt.Errorf("missing masker for type %q (field %s)", plan.tagVal, plan.name)
+			}
 		}
 	}
 
@@ -396,23 +386,42 @@ func (p *Processor[T]) validateCapabilities() error {
 
 // Receive unmarshals data and applies receive context actions (hash).
 // Use for data coming from external sources (API requests, events).
-func (p *Processor[T]) Receive(data []byte) (*T, error) {
+func (p *Processor[T]) Receive(ctx context.Context, data []byte) (*T, error) {
+	if err := p.ensureValidated(); err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	emitReceiveStart(ctx, p.codec.ContentType(), p.typeName)
+
+	var retErr error
+	defer func() {
+		emitReceiveComplete(ctx, p.codec.ContentType(), p.typeName,
+			time.Since(start), len(p.receivePlans.hashFields), retErr)
+	}()
+
 	var obj T
 	if err := p.codec.Unmarshal(data, &obj); err != nil {
-		return nil, fmt.Errorf("unmarshal: %w", err)
+		retErr = fmt.Errorf("unmarshal: %w", err)
+		return nil, retErr
 	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
 	// Check for override interface
 	if h, ok := any(&obj).(Hashable); ok {
 		if err := h.Hash(p.hashers); err != nil {
-			return nil, fmt.Errorf("hash: %w", err)
+			retErr = fmt.Errorf("hash: %w", err)
+			return nil, retErr
 		}
 		return &obj, nil
 	}
 
 	// Apply hash actions via reflection
 	if err := p.applyHash(&obj); err != nil {
-		return nil, fmt.Errorf("hash: %w", err)
+		retErr = fmt.Errorf("hash: %w", err)
+		return nil, retErr
 	}
 
 	return &obj, nil
@@ -420,23 +429,42 @@ func (p *Processor[T]) Receive(data []byte) (*T, error) {
 
 // Load unmarshals data and applies load context actions (decrypt).
 // Use for data coming from storage (database, cache).
-func (p *Processor[T]) Load(data []byte) (*T, error) {
+func (p *Processor[T]) Load(ctx context.Context, data []byte) (*T, error) {
+	if err := p.ensureValidated(); err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	emitLoadStart(ctx, p.codec.ContentType(), p.typeName)
+
+	var retErr error
+	defer func() {
+		emitLoadComplete(ctx, p.codec.ContentType(), p.typeName,
+			time.Since(start), len(p.loadPlans.decryptFields), retErr)
+	}()
+
 	var obj T
 	if err := p.codec.Unmarshal(data, &obj); err != nil {
-		return nil, fmt.Errorf("unmarshal: %w", err)
+		retErr = fmt.Errorf("unmarshal: %w", err)
+		return nil, retErr
 	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
 	// Check for override interface
 	if d, ok := any(&obj).(Decryptable); ok {
 		if err := d.Decrypt(p.encryptors); err != nil {
-			return nil, fmt.Errorf("decrypt: %w", err)
+			retErr = fmt.Errorf("decrypt: %w", err)
+			return nil, retErr
 		}
 		return &obj, nil
 	}
 
 	// Apply decrypt actions via reflection
 	if err := p.applyDecrypt(&obj); err != nil {
-		return nil, fmt.Errorf("decrypt: %w", err)
+		retErr = fmt.Errorf("decrypt: %w", err)
+		return nil, retErr
 	}
 
 	return &obj, nil
@@ -444,63 +472,109 @@ func (p *Processor[T]) Load(data []byte) (*T, error) {
 
 // Store applies store context actions (encrypt) and marshals the result.
 // Use for data going to storage (database, cache).
-func (p *Processor[T]) Store(obj *T) ([]byte, error) {
+func (p *Processor[T]) Store(ctx context.Context, obj *T) ([]byte, error) {
+	if err := p.ensureValidated(); err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	emitStoreStart(ctx, p.codec.ContentType(), p.typeName)
+
+	var retErr error
+	var retData []byte
+	defer func() {
+		emitStoreComplete(ctx, p.codec.ContentType(), p.typeName,
+			len(retData), time.Since(start), len(p.storePlans.encryptFields), retErr)
+	}()
+
 	if obj == nil {
-		return p.codec.Marshal(nil)
+		retData, retErr = p.codec.Marshal(nil)
+		return retData, retErr
 	}
 
 	// Clone to avoid mutating original
 	clone := (*obj).Clone()
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
 	// Check for override interface
 	if e, ok := any(&clone).(Encryptable); ok {
 		if err := e.Encrypt(p.encryptors); err != nil {
-			return nil, fmt.Errorf("encrypt: %w", err)
+			retErr = fmt.Errorf("encrypt: %w", err)
+			return nil, retErr
 		}
-		return p.codec.Marshal(&clone)
+		retData, retErr = p.codec.Marshal(&clone)
+		return retData, retErr
 	}
 
 	// Apply encrypt actions via reflection
 	if err := p.applyEncrypt(&clone); err != nil {
-		return nil, fmt.Errorf("encrypt: %w", err)
+		retErr = fmt.Errorf("encrypt: %w", err)
+		return nil, retErr
 	}
 
-	return p.codec.Marshal(&clone)
+	retData, retErr = p.codec.Marshal(&clone)
+	return retData, retErr
 }
 
 // Send applies send context actions (mask, redact) and marshals the result.
 // Use for data going to external destinations (API responses, events).
-func (p *Processor[T]) Send(obj *T) ([]byte, error) {
+func (p *Processor[T]) Send(ctx context.Context, obj *T) ([]byte, error) {
+	if err := p.ensureValidated(); err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	emitSendStart(ctx, p.codec.ContentType(), p.typeName)
+
+	var retErr error
+	var retData []byte
+	defer func() {
+		emitSendComplete(ctx, p.codec.ContentType(), p.typeName,
+			len(retData), time.Since(start),
+			len(p.sendPlans.maskFields), len(p.sendPlans.redactFields), retErr)
+	}()
+
 	if obj == nil {
-		return p.codec.Marshal(nil)
+		retData, retErr = p.codec.Marshal(nil)
+		return retData, retErr
 	}
 
 	// Clone to avoid mutating original
 	clone := (*obj).Clone()
 
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	// Apply mask - check for override interface
 	if m, ok := any(&clone).(Maskable); ok {
 		if err := m.Mask(p.maskers); err != nil {
-			return nil, fmt.Errorf("mask: %w", err)
+			retErr = fmt.Errorf("mask: %w", err)
+			return nil, retErr
 		}
 	} else {
 		if err := p.applyMask(&clone); err != nil {
-			return nil, fmt.Errorf("mask: %w", err)
+			retErr = fmt.Errorf("mask: %w", err)
+			return nil, retErr
 		}
 	}
 
 	// Apply redact - check for override interface
 	if r, ok := any(&clone).(Redactable); ok {
 		if err := r.Redact(); err != nil {
-			return nil, fmt.Errorf("redact: %w", err)
+			retErr = fmt.Errorf("redact: %w", err)
+			return nil, retErr
 		}
 	} else {
 		if err := p.applyRedact(&clone); err != nil {
-			return nil, fmt.Errorf("redact: %w", err)
+			retErr = fmt.Errorf("redact: %w", err)
+			return nil, retErr
 		}
 	}
 
-	return p.codec.Marshal(&clone)
+	retData, retErr = p.codec.Marshal(&clone)
+	return retData, retErr
 }
 
 // applyHash applies hash transformations via reflection.

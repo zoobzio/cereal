@@ -1,13 +1,14 @@
 package integration
 
 import (
+	"context"
 	"testing"
 
 	"github.com/zoobzio/codec"
-	"github.com/zoobzio/codec/pkg/json"
-	"github.com/zoobzio/codec/pkg/msgpack"
-	"github.com/zoobzio/codec/pkg/xml"
-	"github.com/zoobzio/codec/pkg/yaml"
+	"github.com/zoobzio/codec/json"
+	"github.com/zoobzio/codec/msgpack"
+	"github.com/zoobzio/codec/xml"
+	"github.com/zoobzio/codec/yaml"
 	codectest "github.com/zoobzio/codec/testing"
 )
 
@@ -35,13 +36,11 @@ func (u XMLUser) Clone() XMLUser { return u }
 
 // XML requires different struct tags, test separately
 func TestProcessor_StoreLoad_XML(t *testing.T) {
-	proc, err := codec.NewProcessor[XMLUser](
-		xml.New(),
-		codec.WithKey(codec.EncryptAES, codectest.TestKey()),
-	)
+	proc, err := codec.NewProcessor[XMLUser](xml.New())
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
 
 	original := &XMLUser{
 		ID:       "123",
@@ -51,13 +50,13 @@ func TestProcessor_StoreLoad_XML(t *testing.T) {
 	}
 
 	// Store encrypts email
-	data, err := proc.Store(original)
+	data, err := proc.Store(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store error: %v", err)
 	}
 
 	// Load decrypts email
-	restored, err := proc.Load(data)
+	restored, err := proc.Load(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
@@ -70,13 +69,11 @@ func TestProcessor_StoreLoad_XML(t *testing.T) {
 
 func TestProcessor_Send_XML(t *testing.T) {
 	xmlCodec := xml.New()
-	proc, err := codec.NewProcessor[XMLUser](
-		xmlCodec,
-		codec.WithKey(codec.EncryptAES, codectest.TestKey()),
-	)
+	proc, err := codec.NewProcessor[XMLUser](xmlCodec)
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
 
 	original := &XMLUser{
 		ID:       "123",
@@ -86,7 +83,7 @@ func TestProcessor_Send_XML(t *testing.T) {
 	}
 
 	// Send masks email and redacts password/note
-	data, err := proc.Send(original)
+	data, err := proc.Send(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -116,13 +113,11 @@ func TestProcessor_Send_XML(t *testing.T) {
 func testStoreLoad(t *testing.T, c codec.Codec) {
 	t.Helper()
 
-	proc, err := codec.NewProcessor[codectest.SanitizedUser](
-		c,
-		codec.WithKey(codec.EncryptAES, codectest.TestKey()),
-	)
+	proc, err := codec.NewProcessor[codectest.SanitizedUser](c)
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
 
 	original := &codectest.SanitizedUser{
 		ID:       "123",
@@ -133,13 +128,13 @@ func testStoreLoad(t *testing.T, c codec.Codec) {
 	}
 
 	// Store encrypts email
-	data, err := proc.Store(original)
+	data, err := proc.Store(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store error: %v", err)
 	}
 
 	// Load decrypts email
-	restored, err := proc.Load(data)
+	restored, err := proc.Load(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
@@ -152,13 +147,11 @@ func testStoreLoad(t *testing.T, c codec.Codec) {
 
 func TestProcessor_Send(t *testing.T) {
 	jsonCodec := json.New()
-	proc, err := codec.NewProcessor[codectest.SanitizedUser](
-		jsonCodec,
-		codec.WithKey(codec.EncryptAES, codectest.TestKey()),
-	)
+	proc, err := codec.NewProcessor[codectest.SanitizedUser](jsonCodec)
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
 
 	original := &codectest.SanitizedUser{
 		ID:       "123",
@@ -169,7 +162,7 @@ func TestProcessor_Send(t *testing.T) {
 	}
 
 	// Send masks email/SSN and redacts password/note
-	data, err := proc.Send(original)
+	data, err := proc.Send(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
