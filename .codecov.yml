@@ -8,3 +8,8 @@ coverage:
       default:
         target: 80%
         threshold: 0%
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true

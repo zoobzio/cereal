@@ -1,7 +1,7 @@
-module github.com/zoobzio/codec/xml
+module github.com/zoobzio/cereal/xml
 
 go 1.24.0
 
-require github.com/zoobzio/codec v0.0.0
+require github.com/zoobzio/cereal v0.0.0
 
-replace github.com/zoobzio/codec => ../
+replace github.com/zoobzio/cereal => ../

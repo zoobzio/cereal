@@ -1,4 +1,4 @@
-package codec
+package cereal
 
 import (
 	"context"
@@ -386,6 +386,8 @@ func (p *Processor[T]) validateCapabilities() error {
 
 // Receive unmarshals data and applies receive context actions (hash).
 // Use for data coming from external sources (API requests, events).
+//
+//nolint:dupl // Intentional parallel structure with Load for boundary operations
 func (p *Processor[T]) Receive(ctx context.Context, data []byte) (*T, error) {
 	if err := p.ensureValidated(); err != nil {
 		return nil, err
@@ -429,6 +431,8 @@ func (p *Processor[T]) Receive(ctx context.Context, data []byte) (*T, error) {
 
 // Load unmarshals data and applies load context actions (decrypt).
 // Use for data coming from storage (database, cache).
+//
+//nolint:dupl // Intentional parallel structure with Receive for boundary operations
 func (p *Processor[T]) Load(ctx context.Context, data []byte) (*T, error) {
 	if err := p.ensureValidated(); err != nil {
 		return nil, err

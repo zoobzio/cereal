@@ -1,20 +1,24 @@
-// Package testing provides test utilities for codec.
+// Package testing provides test utilities for cereal.
 package testing
 
 import (
-	"github.com/zoobzio/codec"
+	"testing"
+
+	"github.com/zoobzio/cereal"
 )
 
 // TestKey returns a valid 32-byte AES key for testing.
-func TestKey() []byte {
+func TestKey(tb testing.TB) []byte {
+	tb.Helper()
 	return []byte("32-byte-key-for-aes-256-encrypt!")
 }
 
 // TestEncryptor returns an AES encryptor configured for testing.
-func TestEncryptor() codec.Encryptor {
-	enc, err := codec.AES(TestKey())
+func TestEncryptor(tb testing.TB) cereal.Encryptor {
+	tb.Helper()
+	enc, err := cereal.AES(TestKey(tb))
 	if err != nil {
-		panic(err)
+		tb.Fatalf("failed to create test encryptor: %v", err)
 	}
 	return enc
 }

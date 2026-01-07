@@ -1,4 +1,4 @@
-// Package codec provides context-aware serialization with field transformation.
+// Package cereal provides context-aware serialization with field transformation.
 //
 // The package offers a Codec interface for marshaling/unmarshaling data,
 // along with a generic Processor that adds context-aware field transformation
@@ -6,7 +6,7 @@
 //
 // # Contexts
 //
-// Codec operates on four contexts representing boundary crossings:
+// Cereal operates on four contexts representing boundary crossings:
 //
 //   - receive: Ingress from external sources (API requests, events)
 //   - load: Ingress from storage (database, cache)
@@ -37,9 +37,9 @@
 //
 //	func (u User) Clone() User { return u }
 //
-//	proc, _ := codec.NewProcessor[User](
+//	proc, _ := cereal.NewProcessor[User](
 //	    json.Codec(),
-//	    codec.WithKey(codec.EncryptAES, aesKey),
+//	    cereal.WithKey(cereal.EncryptAES, aesKey),
 //	)
 //
 //	// Receive from API (hashes password)
@@ -66,7 +66,7 @@
 //
 // Hashers and maskers are auto-registered. Only encryption keys need manual registration:
 //
-//	codec.WithKey(codec.EncryptAES, key)
+//	cereal.WithKey(cereal.EncryptAES, key)
 //
 // # Override Interfaces
 //
@@ -117,7 +117,7 @@
 //   - uuid: 550e8400-e29b-... → 550e8400-****-****-****-************
 //   - iban: GB82WEST12345698765432 → GB82**************5432
 //   - name: John Smith → J*** S****
-package codec
+package cereal
 
 // Cloner allows types to provide deep copy logic.
 // Implementing this interface is required for use with Serializer.

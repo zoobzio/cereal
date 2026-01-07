@@ -1,4 +1,4 @@
-module github.com/zoobzio/codec
+module github.com/zoobzio/cereal
 
 go 1.24.0
 
@@ -6,10 +6,10 @@ toolchain go1.25.4
 
 require (
 	github.com/zoobzio/capitan v0.1.0
-	github.com/zoobzio/codec/json v0.0.0-00010101000000-000000000000
-	github.com/zoobzio/codec/msgpack v0.0.0-00010101000000-000000000000
-	github.com/zoobzio/codec/xml v0.0.0-00010101000000-000000000000
-	github.com/zoobzio/codec/yaml v0.0.0-00010101000000-000000000000
+	github.com/zoobzio/cereal/json v0.0.0-00010101000000-000000000000
+	github.com/zoobzio/cereal/msgpack v0.0.0-00010101000000-000000000000
+	github.com/zoobzio/cereal/xml v0.0.0-00010101000000-000000000000
+	github.com/zoobzio/cereal/yaml v0.0.0-00010101000000-000000000000
 	github.com/zoobzio/sentinel v0.1.1
 	golang.org/x/crypto v0.46.0
 )
@@ -22,9 +22,9 @@ require (
 )
 
 replace (
-	github.com/zoobzio/codec/bson => ./bson
-	github.com/zoobzio/codec/json => ./json
-	github.com/zoobzio/codec/msgpack => ./msgpack
-	github.com/zoobzio/codec/xml => ./xml
-	github.com/zoobzio/codec/yaml => ./yaml
+	github.com/zoobzio/cereal/bson => ./bson
+	github.com/zoobzio/cereal/json => ./json
+	github.com/zoobzio/cereal/msgpack => ./msgpack
+	github.com/zoobzio/cereal/xml => ./xml
+	github.com/zoobzio/cereal/yaml => ./yaml
 )

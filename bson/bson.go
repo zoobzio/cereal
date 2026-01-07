@@ -2,15 +2,15 @@
 package bson
 
 import (
-	"github.com/zoobzio/codec"
+	"github.com/zoobzio/cereal"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// bsonCodec implements codec.Codec for BSON.
+// bsonCodec implements cereal.Codec for BSON.
 type bsonCodec struct{}
 
-// New returns a BSON codec.
-func New() codec.Codec {
+// New returns a BSON cereal.
+func New() cereal.Codec {
 	return &bsonCodec{}
 }
 

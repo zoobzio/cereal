@@ -1,10 +1,10 @@
-package codec_test
+package cereal_test
 
 import (
 	"testing"
 
-	"github.com/zoobzio/codec"
-	"github.com/zoobzio/codec/json"
+	"github.com/zoobzio/cereal"
+	"github.com/zoobzio/cereal/json"
 )
 
 type CacheTestUser struct {
@@ -14,14 +14,14 @@ type CacheTestUser struct {
 func (u CacheTestUser) Clone() CacheTestUser { return u }
 
 func TestUse_Caching(t *testing.T) {
-	codec.Reset() // Clear cache
+	cereal.Reset() // Clear cache
 
-	s1, err := codec.Use[CacheTestUser](json.New())
+	s1, err := cereal.Use[CacheTestUser](json.New())
 	if err != nil {
 		t.Fatalf("Use() error: %v", err)
 	}
 
-	s2, err := codec.Use[CacheTestUser](json.New())
+	s2, err := cereal.Use[CacheTestUser](json.New())
 	if err != nil {
 		t.Fatalf("Use() error: %v", err)
 	}
@@ -32,15 +32,15 @@ func TestUse_Caching(t *testing.T) {
 }
 
 func TestUse_DifferentCodecs(t *testing.T) {
-	codec.Reset()
+	cereal.Reset()
 
 	// Create a simple codec for testing
 	jsonCodec := json.New()
 
-	s1, _ := codec.Use[CacheTestUser](jsonCodec)
+	s1, _ := cereal.Use[CacheTestUser](jsonCodec)
 
 	// Same type, same codec should return same instance
-	s2, _ := codec.Use[CacheTestUser](jsonCodec)
+	s2, _ := cereal.Use[CacheTestUser](jsonCodec)
 
 	if s1 != s2 {
 		t.Error("same type and codec should return cached processor")
@@ -48,11 +48,11 @@ func TestUse_DifferentCodecs(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	s1, _ := codec.Use[CacheTestUser](json.New())
+	s1, _ := cereal.Use[CacheTestUser](json.New())
 
-	codec.Reset()
+	cereal.Reset()
 
-	s2, _ := codec.Use[CacheTestUser](json.New())
+	s2, _ := cereal.Use[CacheTestUser](json.New())
 
 	if s1 == s2 {
 		t.Error("Reset() should clear cache, new processor expected")

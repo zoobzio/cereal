@@ -2,15 +2,15 @@
 package yaml
 
 import (
-	"github.com/zoobzio/codec"
+	"github.com/zoobzio/cereal"
 	"gopkg.in/yaml.v3"
 )
 
-// yamlCodec implements codec.Codec for YAML.
+// yamlCodec implements cereal.Codec for YAML.
 type yamlCodec struct{}
 
-// New returns a YAML codec.
-func New() codec.Codec {
+// New returns a YAML cereal.
+func New() cereal.Codec {
 	return &yamlCodec{}
 }
 

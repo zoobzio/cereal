@@ -4,14 +4,14 @@ package json
 import (
 	"encoding/json"
 
-	"github.com/zoobzio/codec"
+	"github.com/zoobzio/cereal"
 )
 
-// jsonCodec implements codec.Codec for JSON.
+// jsonCodec implements cereal.Codec for JSON.
 type jsonCodec struct{}
 
-// New returns a JSON codec.
-func New() codec.Codec {
+// New returns a JSON cereal.
+func New() cereal.Codec {
 	return &jsonCodec{}
 }
 

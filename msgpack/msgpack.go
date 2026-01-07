@@ -3,14 +3,14 @@ package msgpack
 
 import (
 	"github.com/vmihailenco/msgpack/v5"
-	"github.com/zoobzio/codec"
+	"github.com/zoobzio/cereal"
 )
 
-// msgpackCodec implements codec.Codec for MessagePack.
+// msgpackCodec implements cereal.Codec for MessagePack.
 type msgpackCodec struct{}
 
-// New returns a MessagePack codec.
-func New() codec.Codec {
+// New returns a MessagePack cereal.
+func New() cereal.Codec {
 	return &msgpackCodec{}
 }
 

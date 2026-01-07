@@ -1,4 +1,4 @@
-package codec
+package cereal
 
 import (
 	"crypto/rand"
@@ -84,6 +84,7 @@ func (h *argon2Hasher) Hash(plaintext []byte) (string, error) {
 // BcryptCost represents the bcrypt cost factor.
 type BcryptCost int
 
+// Bcrypt cost constants.
 const (
 	BcryptMinCost     BcryptCost = BcryptCost(bcrypt.MinCost)
 	BcryptDefaultCost BcryptCost = BcryptCost(bcrypt.DefaultCost)

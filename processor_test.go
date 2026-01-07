@@ -1,10 +1,16 @@
-package codec
+package cereal
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+)
+
+// Test constants for repeated values.
+const (
+	testEmail         = "alice@example.com"
+	testRedactedValue = "***"
 )
 
 // testCodec is a simple JSON codec for testing.
@@ -164,21 +170,23 @@ func TestProcessor_Store_Encrypt(t *testing.T) {
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
-	user := &EncryptUser{ID: "123", Email: "alice@example.com"}
+	user := &EncryptUser{ID: "123", Email: testEmail}
 	data, err := proc.Store(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
 	// Original should not be modified
-	if user.Email != "alice@example.com" {
+	if user.Email != testEmail {
 		t.Error("Store() should not modify original")
 	}
 
 	// Stored data should have encrypted email
 	var stored EncryptUser
-	json.Unmarshal(data, &stored)
-	if stored.Email == "alice@example.com" {
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+	if stored.Email == testEmail {
 		t.Error("Store() should encrypt email")
 	}
 }
@@ -189,7 +197,7 @@ func TestProcessor_Load_Decrypt(t *testing.T) {
 	proc.SetEncryptor(EncryptAES, enc)
 
 	// First store to get encrypted data
-	original := &EncryptUser{ID: "123", Email: "alice@example.com"}
+	original := &EncryptUser{ID: "123", Email: testEmail}
 	data, _ := proc.Store(context.Background(), original)
 
 	// Then load to decrypt
@@ -208,7 +216,7 @@ func TestProcessor_Send_Mask(t *testing.T) {
 
 	user := &MaskUser{
 		ID:    "123",
-		Email: "alice@example.com",
+		Email: testEmail,
 		SSN:   "123-45-6789",
 	}
 	data, err := proc.Send(context.Background(), user)
@@ -217,14 +225,16 @@ func TestProcessor_Send_Mask(t *testing.T) {
 	}
 
 	// Original should not be modified
-	if user.Email != "alice@example.com" {
+	if user.Email != testEmail {
 		t.Error("Send() should not modify original")
 	}
 
 	var sent MaskUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
-	if sent.Email == "alice@example.com" {
+	if sent.Email == testEmail {
 		t.Error("Send() should mask email")
 	}
 	if sent.SSN == "123-45-6789" {
@@ -246,10 +256,12 @@ func TestProcessor_Send_Redact(t *testing.T) {
 	}
 
 	var sent RedactUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
-	if sent.Password != "***" {
-		t.Errorf("Send() password = %q, want %q", sent.Password, "***")
+	if sent.Password != testRedactedValue {
+		t.Errorf("Send() password = %q, want %q", sent.Password, testRedactedValue)
 	}
 	if sent.Token != "[REDACTED]" {
 		t.Errorf("Send() token = %q, want %q", sent.Token, "[REDACTED]")
@@ -288,7 +300,7 @@ type HashableUser struct {
 
 func (u HashableUser) Clone() HashableUser { return u }
 
-func (u *HashableUser) Hash(hashers map[HashAlgo]Hasher) error {
+func (u *HashableUser) Hash(_ map[HashAlgo]Hasher) error {
 	u.Password = "custom-hashed"
 	return nil
 }
@@ -315,7 +327,7 @@ type EncryptableUser struct {
 
 func (u EncryptableUser) Clone() EncryptableUser { return u }
 
-func (u *EncryptableUser) Encrypt(encryptors map[EncryptAlgo]Encryptor) error {
+func (u *EncryptableUser) Encrypt(_ map[EncryptAlgo]Encryptor) error {
 	u.Email = "custom-encrypted"
 	return nil
 }
@@ -323,14 +335,16 @@ func (u *EncryptableUser) Encrypt(encryptors map[EncryptAlgo]Encryptor) error {
 func TestProcessor_Store_InterfaceOverride(t *testing.T) {
 	proc, _ := NewProcessor[EncryptableUser](&testCodec{})
 
-	user := &EncryptableUser{ID: "123", Email: "alice@example.com"}
+	user := &EncryptableUser{ID: "123", Email: testEmail}
 	data, err := proc.Store(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
 	var stored EncryptableUser
-	json.Unmarshal(data, &stored)
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	if stored.Email != "custom-encrypted" {
 		t.Errorf("Store() should use Encryptable interface, got %q", stored.Email)
@@ -345,7 +359,7 @@ type DecryptableUser struct {
 
 func (u DecryptableUser) Clone() DecryptableUser { return u }
 
-func (u *DecryptableUser) Decrypt(encryptors map[EncryptAlgo]Encryptor) error {
+func (u *DecryptableUser) Decrypt(_ map[EncryptAlgo]Encryptor) error {
 	u.Email = "custom-decrypted"
 	return nil
 }
@@ -372,7 +386,7 @@ type MaskableUser struct {
 
 func (u MaskableUser) Clone() MaskableUser { return u }
 
-func (u *MaskableUser) Mask(maskers map[MaskType]Masker) error {
+func (u *MaskableUser) Mask(_ map[MaskType]Masker) error {
 	u.Email = "custom-masked"
 	return nil
 }
@@ -380,14 +394,16 @@ func (u *MaskableUser) Mask(maskers map[MaskType]Masker) error {
 func TestProcessor_Send_MaskInterfaceOverride(t *testing.T) {
 	proc, _ := NewProcessor[MaskableUser](&testCodec{})
 
-	user := &MaskableUser{ID: "123", Email: "alice@example.com"}
+	user := &MaskableUser{ID: "123", Email: testEmail}
 	data, err := proc.Send(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
 
 	var sent MaskableUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	if sent.Email != "custom-masked" {
 		t.Errorf("Send() should use Maskable interface, got %q", sent.Email)
@@ -417,7 +433,9 @@ func TestProcessor_Send_RedactInterfaceOverride(t *testing.T) {
 	}
 
 	var sent RedactableUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	if sent.Password != "custom-redacted" {
 		t.Errorf("Send() should use Redactable interface, got %q", sent.Password)
@@ -455,7 +473,9 @@ func TestProcessor_Send_NestedStruct(t *testing.T) {
 	}
 
 	var sent NestedUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	if sent.Address.Street != "[HIDDEN]" {
 		t.Errorf("Send() nested street = %q, want %q", sent.Address.Street, "[HIDDEN]")
@@ -495,7 +515,9 @@ func TestProcessor_Send_PointerNestedStruct(t *testing.T) {
 	}
 
 	var sent PointerNestedUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	if sent.Address.Street != "[HIDDEN]" {
 		t.Errorf("Send() pointer nested street = %q, want %q", sent.Address.Street, "[HIDDEN]")
@@ -515,7 +537,9 @@ func TestProcessor_Send_PointerNestedStruct_Nil(t *testing.T) {
 	}
 
 	var sent PointerNestedUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	if sent.Address != nil {
 		t.Error("Send() should preserve nil pointer")
@@ -569,7 +593,9 @@ func TestProcessor_Send_SliceMask(t *testing.T) {
 	}
 
 	var sent SliceUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	for i, email := range sent.Emails {
 		if email == user.Emails[i] {
@@ -593,11 +619,13 @@ func TestProcessor_Send_SliceRedact(t *testing.T) {
 	}
 
 	var sent SliceUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	for _, secret := range sent.Secrets {
-		if secret != "***" {
-			t.Errorf("Send() secret = %q, want %q", secret, "***")
+		if secret != testRedactedValue {
+			t.Errorf("Send() secret = %q, want %q", secret, testRedactedValue)
 		}
 	}
 }
@@ -704,7 +732,9 @@ func TestProcessor_Send_MapMask(t *testing.T) {
 	}
 
 	var sent MapUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	for k, email := range sent.Emails {
 		if email == user.Emails[k] {
@@ -728,11 +758,13 @@ func TestProcessor_Send_MapRedact(t *testing.T) {
 	}
 
 	var sent MapUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	for k, secret := range sent.Secrets {
-		if secret != "***" {
-			t.Errorf("Send() secrets[%s] = %q, want %q", k, secret, "***")
+		if secret != testRedactedValue {
+			t.Errorf("Send() secrets[%s] = %q, want %q", k, secret, testRedactedValue)
 		}
 	}
 }
@@ -867,7 +899,9 @@ func TestProcessor_Send_BytesRedact(t *testing.T) {
 	}
 
 	var sent BytesUser
-	json.Unmarshal(data, &sent)
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
 
 	if string(sent.Redact) != "[BYTES]" {
 		t.Errorf("Send() Redact = %q, want %q", sent.Redact, "[BYTES]")

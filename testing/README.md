@@ -37,10 +37,12 @@ make coverage
 
 `helpers.go` provides:
 
-- `TestKey()` - 32-byte AES key for testing
-- `TestEncryptor()` - Pre-configured AES encryptor
+- `TestKey(tb testing.TB)` - 32-byte AES key for testing
+- `TestEncryptor(tb testing.TB)` - Pre-configured AES encryptor
 - `SimpleUser` - Basic test type without transforms
 - `SanitizedUser` - Test type with full boundary tags
+
+All helpers accept `testing.TB` (common interface for `*testing.T` and `*testing.B`), call `tb.Helper()` for clean stack traces, and fail via `tb.Fatalf()` on error.
 
 ## Writing Tests
 
@@ -48,7 +50,7 @@ Unit tests live alongside source files. Use the test helpers for consistent fixt
 
 ```go
 func TestExample(t *testing.T) {
-    enc := testing.TestEncryptor()
+    enc := testing.TestEncryptor(t)
     proc, _ := codec.NewProcessor[testing.SanitizedUser](json.New())
     proc.SetEncryptor(codec.EncryptAES, enc)
     // ...

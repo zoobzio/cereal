@@ -33,4 +33,4 @@ Include the following information:
 - We will confirm the vulnerability and determine its impact
 - We will release a fix and publicly disclose the issue
 
-We appreciate your help in keeping Codec and its users safe.
+We appreciate your help in keeping Cereal and its users safe.

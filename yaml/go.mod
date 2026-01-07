@@ -1,10 +1,10 @@
-module github.com/zoobzio/codec/yaml
+module github.com/zoobzio/cereal/yaml
 
 go 1.24.0
 
 require (
-	github.com/zoobzio/codec v0.0.0
+	github.com/zoobzio/cereal v0.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/zoobzio/codec => ../
+replace github.com/zoobzio/cereal => ../

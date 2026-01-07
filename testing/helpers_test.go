@@ -5,14 +5,14 @@ import (
 )
 
 func TestTestKey(t *testing.T) {
-	key := TestKey()
+	key := TestKey(t)
 	if len(key) != 32 {
 		t.Errorf("TestKey() length = %d, want 32", len(key))
 	}
 }
 
 func TestTestEncryptor(t *testing.T) {
-	enc := TestEncryptor()
+	enc := TestEncryptor(t)
 	if enc == nil {
 		t.Error("TestEncryptor() should not return nil")
 	}

@@ -1,13 +1,13 @@
-# Codec
+# Cereal
 
-[![CI](https://github.com/zoobzio/codec/actions/workflows/ci.yml/badge.svg)](https://github.com/zoobzio/codec/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/zoobzio/codec/branch/main/graph/badge.svg)](https://codecov.io/gh/zoobzio/codec)
-[![Go Report Card](https://goreportcard.com/badge/github.com/zoobzio/codec)](https://goreportcard.com/report/github.com/zoobzio/codec)
-[![CodeQL](https://github.com/zoobzio/codec/actions/workflows/codeql.yml/badge.svg)](https://github.com/zoobzio/codec/actions/workflows/codeql.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/zoobzio/codec.svg)](https://pkg.go.dev/github.com/zoobzio/codec)
+[![CI](https://github.com/zoobzio/cereal/actions/workflows/ci.yml/badge.svg)](https://github.com/zoobzio/cereal/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/zoobzio/cereal/branch/main/graph/badge.svg)](https://codecov.io/gh/zoobzio/cereal)
+[![Go Report Card](https://goreportcard.com/badge/github.com/zoobzio/cereal)](https://goreportcard.com/report/github.com/zoobzio/cereal)
+[![CodeQL](https://github.com/zoobzio/cereal/actions/workflows/codeql.yml/badge.svg)](https://github.com/zoobzio/cereal/actions/workflows/codeql.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zoobzio/cereal.svg)](https://pkg.go.dev/github.com/zoobzio/cereal)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/zoobzio/codec)](https://github.com/zoobzio/codec)
-[![Release](https://img.shields.io/github/v/release/zoobzio/codec)](https://github.com/zoobzio/codec/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/zoobzio/cereal)](https://github.com/zoobzio/cereal)
+[![Release](https://img.shields.io/github/v/release/zoobzio/cereal)](https://github.com/zoobzio/cereal/releases)
 
 Boundary-aware serialization for Go. Transform data differently as it crosses system boundaries—encrypt for storage, mask for APIs, hash on receive.
 
@@ -35,7 +35,7 @@ The struct declares intent. The processor handles the rest.
 ## Install
 
 ```bash
-go get github.com/zoobzio/codec
+go get github.com/zoobzio/cereal
 ```
 
 Requires Go 1.24+
@@ -49,8 +49,8 @@ import (
     "context"
     "fmt"
 
-    "github.com/zoobzio/codec"
-    "github.com/zoobzio/codec/json"
+    "github.com/zoobzio/cereal"
+    "github.com/zoobzio/cereal/json"
 )
 
 type User struct {
@@ -65,11 +65,11 @@ func main() {
     ctx := context.Background()
 
     // Create processor with JSON codec
-    proc, _ := codec.NewProcessor[User](json.New())
+    proc, _ := cereal.NewProcessor[User](json.New())
 
     // Configure encryption
-    enc, _ := codec.AES([]byte("32-byte-key-for-aes-256-encrypt!"))
-    proc.SetEncryptor(codec.EncryptAES, enc)
+    enc, _ := cereal.AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+    proc.SetEncryptor(cereal.EncryptAES, enc)
 
     user := &User{
         ID:       "123",
@@ -103,7 +103,7 @@ func main() {
 | Hashing    | receive    | SHA-256, SHA-512, Argon2, bcrypt              | [Reference](docs/5.reference/2.tags.md) |
 | Redaction  | send       | Full replacement with custom string           | [Reference](docs/5.reference/2.tags.md) |
 
-## Why Codec?
+## Why Cereal?
 
 - **Boundary-specific transforms** — Different rules for storage vs. API responses vs. incoming data
 - **Declarative via struct tags** — Security requirements live with the type definition

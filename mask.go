@@ -1,4 +1,4 @@
-package codec
+package cereal
 
 import (
 	"strings"
@@ -8,6 +8,7 @@ import (
 // MaskType represents a known data format with masking rules.
 type MaskType string
 
+// Mask type constants for content-aware masking.
 const (
 	MaskSSN   MaskType = "ssn"   // 123-45-6789 -> ***-**-6789
 	MaskEmail MaskType = "email" // alice@example.com -> a***@example.com
@@ -240,7 +241,9 @@ func expandIPv6(value string) string {
 			zeros[i] = "0000"
 		}
 
-		all := append(left, zeros...)
+		all := make([]string, 0, len(left)+len(zeros)+len(right))
+		all = append(all, left...)
+		all = append(all, zeros...)
 		all = append(all, right...)
 		return strings.Join(all, ":")
 	}

@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in codec
+about: Report a bug in cereal
 title: ''
 labels: bug
 assignees: ''
@@ -27,7 +27,7 @@ assignees: ''
 ## Environment
 
 - Go version:
-- Codec version:
+- Cereal version:
 - OS:
 
 ## Additional Context

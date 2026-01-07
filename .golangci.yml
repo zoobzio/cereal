@@ -16,8 +16,10 @@ linters:
     - gosec
     - noctx
     - bodyclose
+    - sqlclosecheck
     # Error handling
     - errorlint
+    - errchkjson
     - wastedassign
     # Best practices
     - gocritic
@@ -29,21 +31,25 @@ linters:
     - prealloc
     - copyloopvar
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-  govet:
-    enable-all: true
-  dupl:
-    threshold: 150
-  goconst:
-    min-len: 3
-    min-occurrences: 3
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+          - goconst
+          - govet
+
+    settings:
+      errcheck:
+        check-type-assertions: true
+      govet:
+        enable-all: true
+      dupl:
+        threshold: 150
+      goconst:
+        min-len: 3
+        min-occurrences: 3
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - dupl
-        - goconst
-        - govet
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,4 +1,4 @@
-package codec
+package cereal
 
 import (
 	"context"
@@ -7,56 +7,56 @@ import (
 	"time"
 )
 
-func TestEmitProcessorCreated(t *testing.T) {
+func TestEmitProcessorCreated(_ *testing.T) {
 	// Should not panic
 	emitProcessorCreated(context.Background(), "application/json", "TestType")
 }
 
-func TestEmitReceiveStart(t *testing.T) {
+func TestEmitReceiveStart(_ *testing.T) {
 	emitReceiveStart(context.Background(), "application/json", "TestType")
 }
 
-func TestEmitReceiveComplete_Success(t *testing.T) {
+func TestEmitReceiveComplete_Success(_ *testing.T) {
 	emitReceiveComplete(context.Background(), "application/json", "TestType", 100*time.Millisecond, 5, nil)
 }
 
-func TestEmitReceiveComplete_Error(t *testing.T) {
+func TestEmitReceiveComplete_Error(_ *testing.T) {
 	emitReceiveComplete(context.Background(), "application/json", "TestType", 100*time.Millisecond, 0, errors.New("test error"))
 }
 
-func TestEmitLoadStart(t *testing.T) {
+func TestEmitLoadStart(_ *testing.T) {
 	emitLoadStart(context.Background(), "application/json", "TestType")
 }
 
-func TestEmitLoadComplete_Success(t *testing.T) {
+func TestEmitLoadComplete_Success(_ *testing.T) {
 	emitLoadComplete(context.Background(), "application/json", "TestType", 100*time.Millisecond, 3, nil)
 }
 
-func TestEmitLoadComplete_Error(t *testing.T) {
+func TestEmitLoadComplete_Error(_ *testing.T) {
 	emitLoadComplete(context.Background(), "application/json", "TestType", 100*time.Millisecond, 0, errors.New("test error"))
 }
 
-func TestEmitStoreStart(t *testing.T) {
+func TestEmitStoreStart(_ *testing.T) {
 	emitStoreStart(context.Background(), "application/json", "TestType")
 }
 
-func TestEmitStoreComplete_Success(t *testing.T) {
+func TestEmitStoreComplete_Success(_ *testing.T) {
 	emitStoreComplete(context.Background(), "application/json", "TestType", 1024, 100*time.Millisecond, 2, nil)
 }
 
-func TestEmitStoreComplete_Error(t *testing.T) {
+func TestEmitStoreComplete_Error(_ *testing.T) {
 	emitStoreComplete(context.Background(), "application/json", "TestType", 0, 100*time.Millisecond, 0, errors.New("test error"))
 }
 
-func TestEmitSendStart(t *testing.T) {
+func TestEmitSendStart(_ *testing.T) {
 	emitSendStart(context.Background(), "application/json", "TestType")
 }
 
-func TestEmitSendComplete_Success(t *testing.T) {
+func TestEmitSendComplete_Success(_ *testing.T) {
 	emitSendComplete(context.Background(), "application/json", "TestType", 512, 100*time.Millisecond, 4, 2, nil)
 }
 
-func TestEmitSendComplete_Error(t *testing.T) {
+func TestEmitSendComplete_Error(_ *testing.T) {
 	emitSendComplete(context.Background(), "application/json", "TestType", 0, 100*time.Millisecond, 0, 0, errors.New("test error"))
 }
 

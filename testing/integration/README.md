@@ -28,11 +28,11 @@ package integration
 import (
     "testing"
 
-    helper "github.com/zoobzio/codec/testing"
+    helper "github.com/zoobzio/cereal/testing"
 )
 
 func TestNewWorkflow(t *testing.T) {
-    enc := helper.TestEncryptor()
+    enc := helper.TestEncryptor(t)
     // ...
 }
 ```

@@ -1,13 +1,13 @@
-# Contributing to Codec
+# Contributing to Cereal
 
-Thank you for considering contributing to Codec.
+Thank you for considering contributing to Cereal.
 
 ## Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/zoobzio/codec.git
-cd codec
+git clone https://github.com/zoobzio/cereal.git
+cd cereal
 
 # Install development tools
 make install-tools

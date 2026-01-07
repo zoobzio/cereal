@@ -1,4 +1,4 @@
-package codec
+package cereal
 
 import (
 	"crypto/aes"
@@ -11,9 +11,10 @@ import (
 	"io"
 )
 
+// Encryption errors.
 var (
-	ErrInvalidKeySize  = errors.New("invalid key size")
-	ErrCiphertextShort = errors.New("ciphertext too short")
+	ErrInvalidKeySize   = errors.New("invalid key size")
+	ErrCiphertextShort  = errors.New("ciphertext too short")
 	ErrDecryptionFailed = errors.New("decryption failed")
 )
 
@@ -70,7 +71,7 @@ func (e *aesEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := e.gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrDecryptionFailed, err)
 	}
 
 	return plaintext, nil
@@ -170,7 +171,10 @@ func (e *envelopeEncryptor) Encrypt(plaintext []byte) ([]byte, error) {
 	encryptedKey := e.masterGCM.Seal(masterNonce, masterNonce, dataKey, nil)
 
 	// Format: [2 bytes key len][encrypted key][encrypted data]
-	keyLen := uint16(len(encryptedKey))
+	if len(encryptedKey) > 65535 {
+		return nil, errors.New("encrypted key exceeds maximum length")
+	}
+	keyLen := uint16(len(encryptedKey)) //nolint:gosec // bounds checked above
 	result := make([]byte, 2+len(encryptedKey)+len(encryptedData))
 	result[0] = byte(keyLen >> 8)
 	result[1] = byte(keyLen)
@@ -205,7 +209,7 @@ func (e *envelopeEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 
 	dataKey, err := e.masterGCM.Open(nil, masterNonce, encryptedKey, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to decrypt data key: %v", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: failed to decrypt data key: %w", ErrDecryptionFailed, err)
 	}
 
 	// Decrypt data with data key
@@ -229,7 +233,7 @@ func (e *envelopeEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 
 	plaintext, err := dataGCM.Open(nil, dataNonce, encryptedData, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to decrypt data: %v", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: failed to decrypt data: %w", ErrDecryptionFailed, err)
 	}
 
 	return plaintext, nil

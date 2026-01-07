@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/zoobzio/codec"
-	"github.com/zoobzio/codec/json"
-	codectest "github.com/zoobzio/codec/testing"
+	"github.com/zoobzio/cereal"
+	"github.com/zoobzio/cereal/json"
+	codectest "github.com/zoobzio/cereal/testing"
 )
 
 func BenchmarkProcessor_Store_NoTransformation(b *testing.B) {
-	proc, _ := codec.NewProcessor[codectest.SimpleUser](json.New())
+	proc, _ := cereal.NewProcessor[codectest.SimpleUser](json.New())
 	user := &codectest.SimpleUser{ID: "123", Name: "Alice"}
 
 	b.ResetTimer()
@@ -20,8 +20,8 @@ func BenchmarkProcessor_Store_NoTransformation(b *testing.B) {
 }
 
 func BenchmarkProcessor_Store_WithEncryption(b *testing.B) {
-	proc, _ := codec.NewProcessor[codectest.SanitizedUser](json.New())
-	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
+	proc, _ := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(b))
 
 	user := &codectest.SanitizedUser{
 		ID:       "123",
@@ -38,8 +38,8 @@ func BenchmarkProcessor_Store_WithEncryption(b *testing.B) {
 }
 
 func BenchmarkProcessor_Load_WithDecryption(b *testing.B) {
-	proc, _ := codec.NewProcessor[codectest.SanitizedUser](json.New())
-	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
+	proc, _ := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(b))
 
 	user := &codectest.SanitizedUser{
 		ID:       "123",
@@ -58,8 +58,8 @@ func BenchmarkProcessor_Load_WithDecryption(b *testing.B) {
 }
 
 func BenchmarkProcessor_Send_WithMaskingRedaction(b *testing.B) {
-	proc, _ := codec.NewProcessor[codectest.SanitizedUser](json.New())
-	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
+	proc, _ := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(b))
 
 	user := &codectest.SanitizedUser{
 		ID:       "123",
@@ -76,7 +76,7 @@ func BenchmarkProcessor_Send_WithMaskingRedaction(b *testing.B) {
 }
 
 func BenchmarkAES_Encrypt(b *testing.B) {
-	enc := codectest.TestEncryptor()
+	enc := codectest.TestEncryptor(b)
 	plaintext := []byte("this is a test message for encryption benchmarking")
 
 	b.ResetTimer()
@@ -86,7 +86,7 @@ func BenchmarkAES_Encrypt(b *testing.B) {
 }
 
 func BenchmarkHasher_Argon2(b *testing.B) {
-	h := codec.Argon2()
+	h := cereal.Argon2()
 	data := []byte("password123")
 
 	b.ResetTimer()
@@ -96,7 +96,7 @@ func BenchmarkHasher_Argon2(b *testing.B) {
 }
 
 func BenchmarkHasher_SHA256(b *testing.B) {
-	h := codec.SHA256Hasher()
+	h := cereal.SHA256Hasher()
 	data := []byte("this is a test message for hashing benchmarking")
 
 	b.ResetTimer()

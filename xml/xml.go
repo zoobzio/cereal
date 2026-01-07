@@ -4,14 +4,14 @@ package xml
 import (
 	"encoding/xml"
 
-	"github.com/zoobzio/codec"
+	"github.com/zoobzio/cereal"
 )
 
-// xmlCodec implements codec.Codec for XML.
+// xmlCodec implements cereal.Codec for XML.
 type xmlCodec struct{}
 
-// New returns an XML codec.
-func New() codec.Codec {
+// New returns an XML cereal.
+func New() cereal.Codec {
 	return &xmlCodec{}
 }
 

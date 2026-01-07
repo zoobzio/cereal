@@ -37,7 +37,7 @@ BenchmarkProcessor_Store-8    500000    3200 ns/op    1024 B/op    12 allocs/op
 ```go
 func BenchmarkNewOperation(b *testing.B) {
     proc, _ := codec.NewProcessor[testing.SanitizedUser](json.New())
-    proc.SetEncryptor(codec.EncryptAES, testing.TestEncryptor())
+    proc.SetEncryptor(codec.EncryptAES, testing.TestEncryptor(b))
 
     b.ResetTimer()
     for i := 0; i < b.N; i++ {

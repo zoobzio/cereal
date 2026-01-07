@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/zoobzio/codec"
-	"github.com/zoobzio/codec/json"
-	"github.com/zoobzio/codec/msgpack"
-	"github.com/zoobzio/codec/xml"
-	"github.com/zoobzio/codec/yaml"
-	codectest "github.com/zoobzio/codec/testing"
+	"github.com/zoobzio/cereal"
+	"github.com/zoobzio/cereal/json"
+	"github.com/zoobzio/cereal/msgpack"
+	"github.com/zoobzio/cereal/xml"
+	"github.com/zoobzio/cereal/yaml"
+	codectest "github.com/zoobzio/cereal/testing"
 )
 
 func TestProcessor_StoreLoad_JSON(t *testing.T) {
@@ -36,11 +36,11 @@ func (u XMLUser) Clone() XMLUser { return u }
 
 // XML requires different struct tags, test separately
 func TestProcessor_StoreLoad_XML(t *testing.T) {
-	proc, err := codec.NewProcessor[XMLUser](xml.New())
+	proc, err := cereal.NewProcessor[XMLUser](xml.New())
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
-	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
+	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &XMLUser{
 		ID:       "123",
@@ -69,11 +69,11 @@ func TestProcessor_StoreLoad_XML(t *testing.T) {
 
 func TestProcessor_Send_XML(t *testing.T) {
 	xmlCodec := xml.New()
-	proc, err := codec.NewProcessor[XMLUser](xmlCodec)
+	proc, err := cereal.NewProcessor[XMLUser](xmlCodec)
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
-	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
+	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &XMLUser{
 		ID:       "123",
@@ -110,14 +110,14 @@ func TestProcessor_Send_XML(t *testing.T) {
 	}
 }
 
-func testStoreLoad(t *testing.T, c codec.Codec) {
+func testStoreLoad(t *testing.T, c cereal.Codec) {
 	t.Helper()
 
-	proc, err := codec.NewProcessor[codectest.SanitizedUser](c)
+	proc, err := cereal.NewProcessor[codectest.SanitizedUser](c)
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
-	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
+	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &codectest.SanitizedUser{
 		ID:       "123",
@@ -147,11 +147,11 @@ func testStoreLoad(t *testing.T, c codec.Codec) {
 
 func TestProcessor_Send(t *testing.T) {
 	jsonCodec := json.New()
-	proc, err := codec.NewProcessor[codectest.SanitizedUser](jsonCodec)
+	proc, err := cereal.NewProcessor[codectest.SanitizedUser](jsonCodec)
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
-	proc.SetEncryptor(codec.EncryptAES, codectest.TestEncryptor())
+	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &codectest.SanitizedUser{
 		ID:       "123",

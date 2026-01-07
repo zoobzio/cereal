@@ -1,4 +1,4 @@
-package codec
+package cereal
 
 // EncryptAlgo represents a supported encryption algorithm.
 // Use these constants in struct tags: `store.encrypt:"aes"`
