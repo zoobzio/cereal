@@ -174,7 +174,7 @@ func (e *envelopeEncryptor) Encrypt(plaintext []byte) ([]byte, error) {
 	if len(encryptedKey) > 65535 {
 		return nil, errors.New("encrypted key exceeds maximum length")
 	}
-	keyLen := uint16(len(encryptedKey)) //nolint:gosec // bounds checked above
+	keyLen := uint16(len(encryptedKey)) // #nosec G115 -- bounds checked above
 	result := make([]byte, 2+len(encryptedKey)+len(encryptedData))
 	result[0] = byte(keyLen >> 8)
 	result[1] = byte(keyLen)
