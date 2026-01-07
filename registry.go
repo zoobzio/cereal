@@ -5,58 +5,55 @@ import (
 	"sync"
 )
 
-// registryKey combines type and codec for cache lookup.
-type registryKey struct {
-	typ         reflect.Type
-	contentType string
+// typeFieldPlans holds the immutable field plans for a type.
+// These are built once via reflection and cached for reuse.
+type typeFieldPlans struct {
+	receive  receivePlan
+	load     loadPlan
+	store    storePlan
+	send     sendPlan
+	typeName string
 }
 
 var (
-	registry   = make(map[registryKey]any)
-	registryMu sync.RWMutex
+	plansCache   = make(map[reflect.Type]*typeFieldPlans)
+	plansCacheMu sync.RWMutex
 )
 
-// Use returns a cached processor or builds a new one.
-// The processor is cached by type and codec content type.
-// T must implement Cloner[T].
-//
-// Configure the returned processor with SetEncryptor, SetHasher, and SetMasker
-// as needed. These methods are safe to call on a cached processor and can be
-// used for key rotation.
-func Use[T Cloner[T]](codec Codec) (*Processor[T], error) {
+// getOrBuildPlans returns cached field plans or builds and caches them.
+func getOrBuildPlans[T Cloner[T]]() (*typeFieldPlans, error) {
 	typ := reflect.TypeFor[T]()
-	key := registryKey{typ: typ, contentType: codec.ContentType()}
 
 	// Fast path: read-lock cache check
-	registryMu.RLock()
-	if cached, ok := registry[key]; ok {
-		registryMu.RUnlock()
-		return cached.(*Processor[T]), nil
+	plansCacheMu.RLock()
+	if cached, ok := plansCache[typ]; ok {
+		plansCacheMu.RUnlock()
+		return cached, nil
 	}
-	registryMu.RUnlock()
+	plansCacheMu.RUnlock()
 
 	// Slow path: build and cache with write-lock
-	registryMu.Lock()
-	defer registryMu.Unlock()
+	plansCacheMu.Lock()
+	defer plansCacheMu.Unlock()
 
 	// Double-check pattern
-	if cached, ok := registry[key]; ok {
-		return cached.(*Processor[T]), nil
+	if cached, ok := plansCache[typ]; ok {
+		return cached, nil
 	}
 
-	processor, err := NewProcessor[T](codec)
+	plans, err := buildFieldPlans[T]()
 	if err != nil {
 		return nil, err
 	}
 
-	registry[key] = processor
-	return processor, nil
+	plansCache[typ] = plans
+	return plans, nil
 }
 
-// Reset clears the processor registry.
+// ResetPlansCache clears the field plans cache.
 // This is primarily useful for test isolation.
-func Reset() {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	registry = make(map[registryKey]any)
+func ResetPlansCache() {
+	plansCacheMu.Lock()
+	defer plansCacheMu.Unlock()
+	plansCache = make(map[reflect.Type]*typeFieldPlans)
 }

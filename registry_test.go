@@ -8,53 +8,68 @@ import (
 )
 
 type CacheTestUser struct {
-	Name string `json:"name"`
+	Name  string `json:"name"`
+	Email string `json:"email" store.encrypt:"aes" load.decrypt:"aes"`
 }
 
 func (u CacheTestUser) Clone() CacheTestUser { return u }
 
-func TestUse_Caching(t *testing.T) {
-	cereal.Reset() // Clear cache
+func TestNewProcessor_CreatesSeparateInstances(t *testing.T) {
+	cereal.ResetPlansCache()
 
-	s1, err := cereal.Use[CacheTestUser](json.New())
+	p1, err := cereal.NewProcessor[CacheTestUser](json.New())
 	if err != nil {
-		t.Fatalf("Use() error: %v", err)
+		t.Fatalf("NewProcessor() error: %v", err)
 	}
 
-	s2, err := cereal.Use[CacheTestUser](json.New())
+	p2, err := cereal.NewProcessor[CacheTestUser](json.New())
 	if err != nil {
-		t.Fatalf("Use() error: %v", err)
+		t.Fatalf("NewProcessor() error: %v", err)
 	}
 
-	if s1 != s2 {
-		t.Error("Use() should return cached processor")
+	// Different processor instances (each has its own mutable state)
+	if p1 == p2 {
+		t.Error("NewProcessor() should return new instances")
 	}
 }
 
-func TestUse_DifferentCodecs(t *testing.T) {
-	cereal.Reset()
+func TestNewProcessor_SeparateEncryptorState(t *testing.T) {
+	cereal.ResetPlansCache()
 
-	// Create a simple codec for testing
-	jsonCodec := json.New()
+	key1 := []byte("32-byte-key-for-aes-256-encrypt!")
+	key2 := []byte("different-key-for-aes-256-enc!!")
 
-	s1, _ := cereal.Use[CacheTestUser](jsonCodec)
+	enc1, _ := cereal.AES(key1)
+	enc2, _ := cereal.AES(key2)
 
-	// Same type, same codec should return same instance
-	s2, _ := cereal.Use[CacheTestUser](jsonCodec)
+	p1, _ := cereal.NewProcessor[CacheTestUser](json.New())
+	p2, _ := cereal.NewProcessor[CacheTestUser](json.New())
 
-	if s1 != s2 {
-		t.Error("same type and codec should return cached processor")
+	// Configure different encryptors
+	p1.SetEncryptor(cereal.EncryptAES, enc1)
+	p2.SetEncryptor(cereal.EncryptAES, enc2)
+
+	// Each processor should maintain independent state
+	if err := p1.Validate(); err != nil {
+		t.Errorf("p1 validation failed: %v", err)
+	}
+	if err := p2.Validate(); err != nil {
+		t.Errorf("p2 validation failed: %v", err)
 	}
 }
 
-func TestReset(t *testing.T) {
-	s1, _ := cereal.Use[CacheTestUser](json.New())
+func TestResetPlansCache(t *testing.T) {
+	// Create a processor to populate the cache
+	_, err := cereal.NewProcessor[CacheTestUser](json.New())
+	if err != nil {
+		t.Fatalf("NewProcessor() error: %v", err)
+	}
 
-	cereal.Reset()
+	// Reset should not cause errors on subsequent NewProcessor calls
+	cereal.ResetPlansCache()
 
-	s2, _ := cereal.Use[CacheTestUser](json.New())
-
-	if s1 == s2 {
-		t.Error("Reset() should clear cache, new processor expected")
+	_, err = cereal.NewProcessor[CacheTestUser](json.New())
+	if err != nil {
+		t.Fatalf("NewProcessor() after reset error: %v", err)
 	}
 }

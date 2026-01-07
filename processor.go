@@ -91,23 +91,25 @@ type processorFieldPlan struct {
 //
 // Use Validate() to check that all required capabilities are configured.
 func NewProcessor[T Cloner[T]](codec Codec) (*Processor[T], error) {
-	// Scan type metadata
-	spec := sentinel.Scan[T]()
-
-	p := &Processor[T]{
-		codec:      codec,
-		encryptors: make(map[EncryptAlgo]Encryptor),
-		hashers:    builtinHashers(),
-		maskers:    builtinMaskers(),
-		typeName:   spec.TypeName,
-	}
-
-	// Build field plans
-	if err := p.buildFieldPlans(spec, nil, nil, ""); err != nil {
+	// Get or build cached field plans
+	plans, err := getOrBuildPlans[T]()
+	if err != nil {
 		return nil, err
 	}
 
-	emitProcessorCreated(context.Background(), codec.ContentType(), spec.TypeName)
+	p := &Processor[T]{
+		codec:        codec,
+		encryptors:   make(map[EncryptAlgo]Encryptor),
+		hashers:      builtinHashers(),
+		maskers:      builtinMaskers(),
+		typeName:     plans.typeName,
+		receivePlans: plans.receive,
+		loadPlans:    plans.load,
+		storePlans:   plans.store,
+		sendPlans:    plans.send,
+	}
+
+	emitProcessorCreated(context.Background(), codec.ContentType(), plans.typeName)
 	return p, nil
 }
 
@@ -158,8 +160,22 @@ func (p *Processor[T]) ensureValidated() error {
 	return p.validateErr
 }
 
-// buildFieldPlans recursively processes fields and nested structs.
-func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrIndices []int, namePrefix string) error {
+// buildFieldPlans creates field plans for type T by scanning struct tags.
+func buildFieldPlans[T Cloner[T]]() (*typeFieldPlans, error) {
+	spec := sentinel.Scan[T]()
+	plans := &typeFieldPlans{
+		typeName: spec.TypeName,
+	}
+
+	if err := buildFieldPlansRecursive(plans, spec, nil, nil, ""); err != nil {
+		return nil, err
+	}
+
+	return plans, nil
+}
+
+// buildFieldPlansRecursive recursively processes fields and nested structs.
+func buildFieldPlansRecursive(plans *typeFieldPlans, spec sentinel.Metadata, parentIndex, ptrIndices []int, namePrefix string) error {
 	for _, field := range spec.Fields {
 		fullIndex := append(append([]int{}, parentIndex...), field.Index...)
 		fullName := field.Name
@@ -169,9 +185,9 @@ func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrI
 
 		// Handle nested structs
 		if field.Kind == sentinel.KindStruct {
-			nestedSpec := p.scanNestedType(field.ReflectType)
+			nestedSpec := scanNestedType(field.ReflectType)
 			if nestedSpec != nil {
-				if err := p.buildFieldPlans(*nestedSpec, fullIndex, ptrIndices, fullName); err != nil {
+				if err := buildFieldPlansRecursive(plans, *nestedSpec, fullIndex, ptrIndices, fullName); err != nil {
 					return err
 				}
 			}
@@ -180,10 +196,10 @@ func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrI
 
 		// Handle pointer to struct
 		if field.Kind == sentinel.KindPointer && field.ReflectType.Elem().Kind() == reflect.Struct {
-			nestedSpec := p.scanNestedType(field.ReflectType.Elem())
+			nestedSpec := scanNestedType(field.ReflectType.Elem())
 			if nestedSpec != nil {
 				newPtrIndices := append(append([]int{}, ptrIndices...), len(fullIndex)-1)
-				if err := p.buildFieldPlans(*nestedSpec, fullIndex, newPtrIndices, fullName); err != nil {
+				if err := buildFieldPlansRecursive(plans, *nestedSpec, fullIndex, newPtrIndices, fullName); err != nil {
 					return err
 				}
 			}
@@ -219,7 +235,7 @@ func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrI
 			}
 			plan := basePlan
 			plan.tagVal = val
-			p.receivePlans.hashFields = append(p.receivePlans.hashFields, plan)
+			plans.receive.hashFields = append(plans.receive.hashFields, plan)
 		}
 
 		if val, ok := field.Tags["load.decrypt"]; ok {
@@ -228,7 +244,7 @@ func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrI
 			}
 			plan := basePlan
 			plan.tagVal = val
-			p.loadPlans.decryptFields = append(p.loadPlans.decryptFields, plan)
+			plans.load.decryptFields = append(plans.load.decryptFields, plan)
 		}
 
 		if val, ok := field.Tags["store.encrypt"]; ok {
@@ -237,7 +253,7 @@ func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrI
 			}
 			plan := basePlan
 			plan.tagVal = val
-			p.storePlans.encryptFields = append(p.storePlans.encryptFields, plan)
+			plans.store.encryptFields = append(plans.store.encryptFields, plan)
 		}
 
 		if val, ok := field.Tags["send.mask"]; ok {
@@ -246,14 +262,14 @@ func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrI
 			}
 			plan := basePlan
 			plan.tagVal = val
-			p.sendPlans.maskFields = append(p.sendPlans.maskFields, plan)
+			plans.send.maskFields = append(plans.send.maskFields, plan)
 		}
 
 		if val, ok := field.Tags["send.redact"]; ok {
 			// Redact values are arbitrary strings, no validation needed
 			plan := basePlan
 			plan.tagVal = val
-			p.sendPlans.redactFields = append(p.sendPlans.redactFields, plan)
+			plans.send.redactFields = append(plans.send.redactFields, plan)
 		}
 	}
 
@@ -261,7 +277,7 @@ func (p *Processor[T]) buildFieldPlans(spec sentinel.Metadata, parentIndex, ptrI
 }
 
 // scanNestedType scans a nested struct type and returns its metadata.
-func (p *Processor[T]) scanNestedType(rt reflect.Type) *sentinel.Metadata {
+func scanNestedType(rt reflect.Type) *sentinel.Metadata {
 	if spec, ok := sentinel.Lookup(rt.String()); ok {
 		return &spec
 	}
@@ -287,7 +303,7 @@ func (p *Processor[T]) scanNestedType(rt reflect.Type) *sentinel.Metadata {
 			Type:        sf.Type.String(),
 			ReflectType: sf.Type,
 			Index:       sf.Index,
-			Tags:        p.parseContextTags(sf.Tag),
+			Tags:        parseContextTags(sf.Tag),
 		}
 
 		switch sf.Type.Kind() {
@@ -312,7 +328,7 @@ func (p *Processor[T]) scanNestedType(rt reflect.Type) *sentinel.Metadata {
 }
 
 // parseContextTags extracts context.action tags from a struct tag.
-func (p *Processor[T]) parseContextTags(tag reflect.StructTag) map[string]string {
+func parseContextTags(tag reflect.StructTag) map[string]string {
 	tags := make(map[string]string)
 	contextActions := []string{
 		"receive.hash",
