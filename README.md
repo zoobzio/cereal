@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/zoobzio/cereal)](https://goreportcard.com/report/github.com/zoobzio/cereal)
 [![CodeQL](https://github.com/zoobzio/cereal/actions/workflows/codeql.yml/badge.svg)](https://github.com/zoobzio/cereal/actions/workflows/codeql.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/zoobzio/cereal.svg)](https://pkg.go.dev/github.com/zoobzio/cereal)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/github/license/zoobzio/cereal)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/zoobzio/cereal)](https://github.com/zoobzio/cereal)
 [![Release](https://img.shields.io/github/v/release/zoobzio/cereal)](https://github.com/zoobzio/cereal/releases)
 
@@ -113,35 +113,66 @@ func main() {
 - **Provider agnostic** — JSON, YAML, XML, MessagePack, BSON with identical semantics
 - **Observable** — Emits signals for metrics and tracing via capitan
 
+## Security as Structure
+
+Cereal enables a pattern: **declare sensitivity once, enforce everywhere**.
+
+Data sensitivity lives in the type definition, not scattered across handlers. When a field is marked for encryption or masking, every boundary crossing respects that declaration automatically. Business logic remains unaware of security transforms—it works with plain structs while the processor handles the rest.
+
+```go
+// The type declares intent
+type Payment struct {
+    ID     string `json:"id"`
+    Card   string `json:"card" store.encrypt:"aes" send.mask:"card"`
+    Amount int    `json:"amount"`
+}
+
+// Business logic stays clean
+func ProcessPayment(p *Payment) error {
+    // No encryption calls, no masking logic
+    // Just domain operations on plain fields
+    return chargeCard(p.Card, p.Amount)
+}
+
+// Boundaries handle transforms
+stored, _ := proc.Store(ctx, payment)   // Card encrypted
+response, _ := proc.Send(ctx, payment)  // Card masked
+```
+
+Security requirements change in one place. Every serialization path follows.
+
 ## Documentation
 
-**Learn**
+- [Overview](docs/1.overview.md) — Design philosophy
 
-- [Quick Start](docs/2.learn/1.quickstart.md)
-- [Concepts](docs/2.learn/2.concepts.md)
+### Learn
 
-**Guides**
+- [Quick Start](docs/2.learn/1.quickstart.md) — Get started in minutes
+- [Concepts](docs/2.learn/2.concepts.md) — Boundaries, processors, transforms
+- [Architecture](docs/2.learn/3.architecture.md) — Internal design and components
 
-- [Encryption](docs/3.guides/1.encryption.md)
-- [Masking](docs/3.guides/2.masking.md)
-- [Providers](docs/3.guides/3.providers.md)
+### Guides
 
-**Cookbook**
+- [Encryption](docs/3.guides/1.encryption.md) — AES, RSA, envelope encryption
+- [Masking](docs/3.guides/2.masking.md) — PII protection for API responses
+- [Providers](docs/3.guides/3.providers.md) — JSON, YAML, XML, MessagePack, BSON
 
-- [Escape Hatches](docs/4.cookbook/1.escape-hatches.md)
-- [Key Rotation](docs/4.cookbook/2.key-rotation.md)
-- [Code Generation](docs/4.cookbook/3.code-generation.md)
+### Cookbook
 
-**Reference**
+- [Escape Hatches](docs/4.cookbook/1.escape-hatches.md) — Custom transforms and overrides
+- [Key Rotation](docs/4.cookbook/2.key-rotation.md) — Zero-downtime encryption key updates
+- [Code Generation](docs/4.cookbook/3.code-generation.md) — Generating processors from schemas
 
-- [API](docs/5.reference/1.api.md)
-- [Tags](docs/5.reference/2.tags.md)
-- [Errors](docs/5.reference/3.errors.md)
+### Reference
+
+- [API](docs/5.reference/1.api.md) — Complete function documentation
+- [Tags](docs/5.reference/2.tags.md) — All struct tag options
+- [Errors](docs/5.reference/3.errors.md) — Error types and handling
 
 ## Contributing
 
-Contributions welcome. Please open an issue to discuss significant changes before submitting a PR.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT
+MIT License — see [LICENSE](LICENSE) for details.
