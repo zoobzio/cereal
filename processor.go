@@ -231,7 +231,7 @@ func buildFieldPlansRecursive(plans *typeFieldPlans, spec sentinel.Metadata, par
 		// Check for compound tags
 		if val, ok := field.Tags["receive.hash"]; ok {
 			if !IsValidHashAlgo(HashAlgo(val)) {
-				return fmt.Errorf("invalid hash algorithm %q for field %s", val, fullName)
+				return &ConfigError{Err: ErrInvalidTag, Algorithm: val, Field: fullName}
 			}
 			plan := basePlan
 			plan.tagVal = val
@@ -240,7 +240,7 @@ func buildFieldPlansRecursive(plans *typeFieldPlans, spec sentinel.Metadata, par
 
 		if val, ok := field.Tags["load.decrypt"]; ok {
 			if !IsValidEncryptAlgo(EncryptAlgo(val)) {
-				return fmt.Errorf("invalid encryption algorithm %q for field %s", val, fullName)
+				return &ConfigError{Err: ErrInvalidTag, Algorithm: val, Field: fullName}
 			}
 			plan := basePlan
 			plan.tagVal = val
@@ -249,7 +249,7 @@ func buildFieldPlansRecursive(plans *typeFieldPlans, spec sentinel.Metadata, par
 
 		if val, ok := field.Tags["store.encrypt"]; ok {
 			if !IsValidEncryptAlgo(EncryptAlgo(val)) {
-				return fmt.Errorf("invalid encryption algorithm %q for field %s", val, fullName)
+				return &ConfigError{Err: ErrInvalidTag, Algorithm: val, Field: fullName}
 			}
 			plan := basePlan
 			plan.tagVal = val
@@ -258,7 +258,7 @@ func buildFieldPlansRecursive(plans *typeFieldPlans, spec sentinel.Metadata, par
 
 		if val, ok := field.Tags["send.mask"]; ok {
 			if !IsValidMaskType(MaskType(val)) {
-				return fmt.Errorf("invalid mask type %q for field %s", val, fullName)
+				return &ConfigError{Err: ErrInvalidTag, Algorithm: val, Field: fullName}
 			}
 			plan := basePlan
 			plan.tagVal = val
@@ -362,7 +362,7 @@ func (p *Processor[T]) validateCapabilities() error {
 		for _, plan := range p.receivePlans.hashFields {
 			algo := HashAlgo(plan.tagVal)
 			if _, ok := p.hashers[algo]; !ok {
-				return fmt.Errorf("missing hasher for algorithm %q (field %s)", plan.tagVal, plan.name)
+				return newConfigError(ErrMissingHasher, plan.tagVal, plan.name)
 			}
 		}
 	}
@@ -372,7 +372,7 @@ func (p *Processor[T]) validateCapabilities() error {
 		for _, plan := range p.loadPlans.decryptFields {
 			algo := EncryptAlgo(plan.tagVal)
 			if _, ok := p.encryptors[algo]; !ok {
-				return fmt.Errorf("missing encryptor for algorithm %q (field %s)", plan.tagVal, plan.name)
+				return newConfigError(ErrMissingEncryptor, plan.tagVal, plan.name)
 			}
 		}
 	}
@@ -382,7 +382,7 @@ func (p *Processor[T]) validateCapabilities() error {
 		for _, plan := range p.storePlans.encryptFields {
 			algo := EncryptAlgo(plan.tagVal)
 			if _, ok := p.encryptors[algo]; !ok {
-				return fmt.Errorf("missing encryptor for algorithm %q (field %s)", plan.tagVal, plan.name)
+				return newConfigError(ErrMissingEncryptor, plan.tagVal, plan.name)
 			}
 		}
 	}
@@ -392,7 +392,7 @@ func (p *Processor[T]) validateCapabilities() error {
 		for _, plan := range p.sendPlans.maskFields {
 			mt := MaskType(plan.tagVal)
 			if _, ok := p.maskers[mt]; !ok {
-				return fmt.Errorf("missing masker for type %q (field %s)", plan.tagVal, plan.name)
+				return newConfigError(ErrMissingMasker, plan.tagVal, plan.name)
 			}
 		}
 	}
@@ -420,7 +420,7 @@ func (p *Processor[T]) Receive(ctx context.Context, data []byte) (*T, error) {
 
 	var obj T
 	if err := p.codec.Unmarshal(data, &obj); err != nil {
-		retErr = fmt.Errorf("unmarshal: %w", err)
+		retErr = newCodecError(ErrUnmarshal, err)
 		return nil, retErr
 	}
 
@@ -438,7 +438,7 @@ func (p *Processor[T]) Receive(ctx context.Context, data []byte) (*T, error) {
 
 	// Apply hash actions via reflection
 	if err := p.applyHash(&obj); err != nil {
-		retErr = fmt.Errorf("hash: %w", err)
+		retErr = err
 		return nil, retErr
 	}
 
@@ -465,7 +465,7 @@ func (p *Processor[T]) Load(ctx context.Context, data []byte) (*T, error) {
 
 	var obj T
 	if err := p.codec.Unmarshal(data, &obj); err != nil {
-		retErr = fmt.Errorf("unmarshal: %w", err)
+		retErr = newCodecError(ErrUnmarshal, err)
 		return nil, retErr
 	}
 
@@ -483,7 +483,7 @@ func (p *Processor[T]) Load(ctx context.Context, data []byte) (*T, error) {
 
 	// Apply decrypt actions via reflection
 	if err := p.applyDecrypt(&obj); err != nil {
-		retErr = fmt.Errorf("decrypt: %w", err)
+		retErr = err
 		return nil, retErr
 	}
 
@@ -524,18 +524,28 @@ func (p *Processor[T]) Store(ctx context.Context, obj *T) ([]byte, error) {
 			retErr = fmt.Errorf("encrypt: %w", err)
 			return nil, retErr
 		}
-		retData, retErr = p.codec.Marshal(&clone)
-		return retData, retErr
+		var marshalErr error
+		retData, marshalErr = p.codec.Marshal(&clone)
+		if marshalErr != nil {
+			retErr = newCodecError(ErrMarshal, marshalErr)
+			return nil, retErr
+		}
+		return retData, nil
 	}
 
 	// Apply encrypt actions via reflection
 	if err := p.applyEncrypt(&clone); err != nil {
-		retErr = fmt.Errorf("encrypt: %w", err)
+		retErr = err
 		return nil, retErr
 	}
 
-	retData, retErr = p.codec.Marshal(&clone)
-	return retData, retErr
+	var marshalErr error
+	retData, marshalErr = p.codec.Marshal(&clone)
+	if marshalErr != nil {
+		retErr = newCodecError(ErrMarshal, marshalErr)
+		return nil, retErr
+	}
+	return retData, nil
 }
 
 // Send applies send context actions (mask, redact) and marshals the result.
@@ -575,7 +585,7 @@ func (p *Processor[T]) Send(ctx context.Context, obj *T) ([]byte, error) {
 		}
 	} else {
 		if err := p.applyMask(&clone); err != nil {
-			retErr = fmt.Errorf("mask: %w", err)
+			retErr = err
 			return nil, retErr
 		}
 	}
@@ -588,13 +598,17 @@ func (p *Processor[T]) Send(ctx context.Context, obj *T) ([]byte, error) {
 		}
 	} else {
 		if err := p.applyRedact(&clone); err != nil {
-			retErr = fmt.Errorf("redact: %w", err)
+			retErr = err
 			return nil, retErr
 		}
 	}
 
-	retData, retErr = p.codec.Marshal(&clone)
-	return retData, retErr
+	retData, err := p.codec.Marshal(&clone)
+	if err != nil {
+		retErr = newCodecError(ErrMarshal, err)
+		return nil, retErr
+	}
+	return retData, nil
 }
 
 // applyHash applies hash transformations via reflection.
@@ -616,7 +630,7 @@ func (p *Processor[T]) applyHash(obj *T) error {
 				if elem.CanSet() {
 					hashed, err := hasher.Hash([]byte(elem.String()))
 					if err != nil {
-						return fmt.Errorf("hash field %s[%d]: %w", plan.name, i, err)
+						return newTransformError(ErrHash, "hash", fmt.Sprintf("%s[%d]", plan.name, i), err)
 					}
 					elem.SetString(hashed)
 				}
@@ -631,7 +645,7 @@ func (p *Processor[T]) applyHash(obj *T) error {
 				k, v := iter.Key(), iter.Value()
 				hashed, err := hasher.Hash([]byte(v.String()))
 				if err != nil {
-					return fmt.Errorf("hash field %s[%v]: %w", plan.name, k.Interface(), err)
+					return newTransformError(ErrHash, "hash", fmt.Sprintf("%s[%v]", plan.name, k.Interface()), err)
 				}
 				field.SetMapIndex(k, reflect.ValueOf(hashed))
 			}
@@ -652,7 +666,7 @@ func (p *Processor[T]) applyHash(obj *T) error {
 
 		hashed, err := hasher.Hash(plaintext)
 		if err != nil {
-			return fmt.Errorf("hash field %s: %w", plan.name, err)
+			return newTransformError(ErrHash, "hash", plan.name, err)
 		}
 
 		if plan.isBytes {
@@ -684,11 +698,11 @@ func (p *Processor[T]) applyDecrypt(obj *T) error {
 				if elem.CanSet() {
 					ciphertext, err := base64.StdEncoding.DecodeString(elem.String())
 					if err != nil {
-						return fmt.Errorf("base64 decode field %s[%d]: %w", plan.name, i, err)
+						return newTransformError(ErrDecrypt, "decrypt", fmt.Sprintf("%s[%d]", plan.name, i), err)
 					}
 					plaintext, err := enc.Decrypt(ciphertext)
 					if err != nil {
-						return fmt.Errorf("decrypt field %s[%d]: %w", plan.name, i, err)
+						return newTransformError(ErrDecrypt, "decrypt", fmt.Sprintf("%s[%d]", plan.name, i), err)
 					}
 					elem.SetString(string(plaintext))
 				}
@@ -703,11 +717,11 @@ func (p *Processor[T]) applyDecrypt(obj *T) error {
 				k, v := iter.Key(), iter.Value()
 				ciphertext, err := base64.StdEncoding.DecodeString(v.String())
 				if err != nil {
-					return fmt.Errorf("base64 decode field %s[%v]: %w", plan.name, k.Interface(), err)
+					return newTransformError(ErrDecrypt, "decrypt", fmt.Sprintf("%s[%v]", plan.name, k.Interface()), err)
 				}
 				plaintext, err := enc.Decrypt(ciphertext)
 				if err != nil {
-					return fmt.Errorf("decrypt field %s[%v]: %w", plan.name, k.Interface(), err)
+					return newTransformError(ErrDecrypt, "decrypt", fmt.Sprintf("%s[%v]", plan.name, k.Interface()), err)
 				}
 				field.SetMapIndex(k, reflect.ValueOf(string(plaintext)))
 			}
@@ -727,13 +741,13 @@ func (p *Processor[T]) applyDecrypt(obj *T) error {
 		} else {
 			ciphertext, err = base64.StdEncoding.DecodeString(field.String())
 			if err != nil {
-				return fmt.Errorf("base64 decode field %s: %w", plan.name, err)
+				return newTransformError(ErrDecrypt, "decrypt", plan.name, err)
 			}
 		}
 
 		plaintext, err := enc.Decrypt(ciphertext)
 		if err != nil {
-			return fmt.Errorf("decrypt field %s: %w", plan.name, err)
+			return newTransformError(ErrDecrypt, "decrypt", plan.name, err)
 		}
 
 		if plan.isBytes {
@@ -765,7 +779,7 @@ func (p *Processor[T]) applyEncrypt(obj *T) error {
 				if elem.CanSet() {
 					ciphertext, err := enc.Encrypt([]byte(elem.String()))
 					if err != nil {
-						return fmt.Errorf("encrypt field %s[%d]: %w", plan.name, i, err)
+						return newTransformError(ErrEncrypt, "encrypt", fmt.Sprintf("%s[%d]", plan.name, i), err)
 					}
 					elem.SetString(base64.StdEncoding.EncodeToString(ciphertext))
 				}
@@ -780,7 +794,7 @@ func (p *Processor[T]) applyEncrypt(obj *T) error {
 				k, v := iter.Key(), iter.Value()
 				ciphertext, err := enc.Encrypt([]byte(v.String()))
 				if err != nil {
-					return fmt.Errorf("encrypt field %s[%v]: %w", plan.name, k.Interface(), err)
+					return newTransformError(ErrEncrypt, "encrypt", fmt.Sprintf("%s[%v]", plan.name, k.Interface()), err)
 				}
 				field.SetMapIndex(k, reflect.ValueOf(base64.StdEncoding.EncodeToString(ciphertext)))
 			}
@@ -801,7 +815,7 @@ func (p *Processor[T]) applyEncrypt(obj *T) error {
 
 		ciphertext, err := enc.Encrypt(plaintext)
 		if err != nil {
-			return fmt.Errorf("encrypt field %s: %w", plan.name, err)
+			return newTransformError(ErrEncrypt, "encrypt", plan.name, err)
 		}
 
 		if plan.isBytes {

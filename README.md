@@ -19,7 +19,7 @@ Data crosses boundaries constantly. Each crossing demands different treatment:
 type User struct {
     ID       string `json:"id"`
     Email    string `json:"email" store.encrypt:"aes" load.decrypt:"aes" send.mask:"email"`
-    Password string `json:"password" receive.hash:"sha256"`
+    Password string `json:"password" receive.hash:"argon2"`
     SSN      string `json:"ssn" send.mask:"ssn"`
     Token    string `json:"token" send.redact:"[REDACTED]"`
 }
@@ -56,7 +56,7 @@ import (
 type User struct {
     ID       string `json:"id"`
     Email    string `json:"email" store.encrypt:"aes" load.decrypt:"aes" send.mask:"email"`
-    Password string `json:"password" receive.hash:"sha256"`
+    Password string `json:"password" receive.hash:"argon2"`
 }
 
 func (u User) Clone() User { return u }

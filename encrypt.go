@@ -11,11 +11,10 @@ import (
 	"io"
 )
 
-// Encryption errors.
+// Encryption-specific errors (extend the base sentinel errors).
 var (
-	ErrInvalidKeySize   = errors.New("invalid key size")
-	ErrCiphertextShort  = errors.New("ciphertext too short")
-	ErrDecryptionFailed = errors.New("decryption failed")
+	// ErrCiphertextShort indicates the ciphertext is too short to decrypt.
+	ErrCiphertextShort = errors.New("ciphertext too short")
 )
 
 // Encryptor handles encryption/decryption operations.
@@ -36,7 +35,7 @@ type aesEncryptor struct {
 // Key must be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256.
 func AES(key []byte) (Encryptor, error) {
 	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
-		return nil, fmt.Errorf("%w: must be 16, 24, or 32 bytes, got %d", ErrInvalidKeySize, len(key))
+		return nil, fmt.Errorf("%w: must be 16, 24, or 32 bytes, got %d", ErrInvalidKey, len(key))
 	}
 
 	block, err := aes.NewCipher(key)
@@ -71,7 +70,7 @@ func (e *aesEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := e.gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrDecrypt, err)
 	}
 
 	return plaintext, nil
@@ -118,7 +117,7 @@ type envelopeEncryptor struct {
 // Master key must be 16, 24, or 32 bytes.
 func Envelope(masterKey []byte) (Encryptor, error) {
 	if len(masterKey) != 16 && len(masterKey) != 24 && len(masterKey) != 32 {
-		return nil, fmt.Errorf("%w: must be 16, 24, or 32 bytes, got %d", ErrInvalidKeySize, len(masterKey))
+		return nil, fmt.Errorf("%w: must be 16, 24, or 32 bytes, got %d", ErrInvalidKey, len(masterKey))
 	}
 
 	block, err := aes.NewCipher(masterKey)
@@ -209,7 +208,7 @@ func (e *envelopeEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 
 	dataKey, err := e.masterGCM.Open(nil, masterNonce, encryptedKey, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to decrypt data key: %w", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: failed to decrypt data key: %w", ErrDecrypt, err)
 	}
 
 	// Decrypt data with data key
@@ -233,7 +232,7 @@ func (e *envelopeEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 
 	plaintext, err := dataGCM.Open(nil, dataNonce, encryptedData, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to decrypt data: %w", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: failed to decrypt data: %w", ErrDecrypt, err)
 	}
 
 	return plaintext, nil

@@ -86,9 +86,13 @@ type BcryptCost int
 
 // Bcrypt cost constants.
 const (
-	BcryptMinCost     BcryptCost = BcryptCost(bcrypt.MinCost)
-	BcryptDefaultCost BcryptCost = BcryptCost(bcrypt.DefaultCost)
-	BcryptMaxCost     BcryptCost = BcryptCost(bcrypt.MaxCost)
+	BcryptMinCost BcryptCost = BcryptCost(bcrypt.MinCost)
+	BcryptMaxCost BcryptCost = BcryptCost(bcrypt.MaxCost)
+
+	// BcryptDefaultCost is the default cost used by Bcrypt().
+	// Set to 12 per OWASP recommendations (2024+) for password hashing.
+	// The standard library default is 10, but modern hardware warrants higher costs.
+	BcryptDefaultCost BcryptCost = 12
 )
 
 // bcryptHasher implements bcrypt password hashing.
@@ -96,7 +100,8 @@ type bcryptHasher struct {
 	cost int
 }
 
-// Bcrypt returns a bcrypt hasher with default cost.
+// Bcrypt returns a bcrypt hasher with default cost (12).
+// This cost is recommended by OWASP for password hashing as of 2024.
 func Bcrypt() Hasher {
 	return BcryptWithCost(BcryptDefaultCost)
 }

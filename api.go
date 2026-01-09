@@ -120,24 +120,94 @@
 package cereal
 
 // Cloner allows types to provide deep copy logic.
-// Implementing this interface is required for use with Serializer.
+// Implementing this interface is required for use with Processor.
 //
-// The Clone method must return a deep copy where modifications to the clone
-// do not affect the original value. For types containing pointers, slices, or maps,
-// ensure these are also copied to achieve true isolation.
+// # Deep Copy Requirement
 //
-// For simple value types with no pointers, slices, or maps, Clone can simply return
-// the receiver value:
+// The Clone method MUST return a deep copy where modifications to the clone
+// do not affect the original value. This is critical for the processor's
+// non-destructive behavior: Store() and Send() transform clones, leaving
+// originals untouched.
 //
-//	func (u User) Clone() User { return u }
+// WARNING: A shallow copy (simply returning the receiver) is only safe for
+// types with NO reference fields. If your type contains pointers, slices,
+// maps, or nested structs with reference fields, you MUST deep copy them.
 //
-// For types with reference fields, ensure deep copying:
+// # Simple Value Types
+//
+// For types with only primitive fields (string, int, bool, etc.), a shallow
+// copy is sufficient because Go copies these by value:
+//
+//	type User struct {
+//	    ID    string
+//	    Name  string
+//	    Age   int
+//	}
+//
+//	func (u User) Clone() User { return u }  // Safe: all fields are values
+//
+// # Types with Reference Fields
+//
+// For types containing slices, maps, or pointers, you MUST allocate new
+// backing storage and copy elements:
+//
+//	type Order struct {
+//	    ID       string
+//	    Items    []Item           // Slice: needs deep copy
+//	    Metadata map[string]string // Map: needs deep copy
+//	    Billing  *Address         // Pointer: needs deep copy
+//	}
 //
 //	func (o Order) Clone() Order {
-//	    items := make([]Item, len(o.Items))
-//	    copy(items, o.Items)
-//	    return Order{ID: o.ID, Items: items}
+//	    clone := Order{ID: o.ID}
+//
+//	    // Deep copy slice
+//	    if o.Items != nil {
+//	        clone.Items = make([]Item, len(o.Items))
+//	        copy(clone.Items, o.Items)
+//	    }
+//
+//	    // Deep copy map
+//	    if o.Metadata != nil {
+//	        clone.Metadata = make(map[string]string, len(o.Metadata))
+//	        for k, v := range o.Metadata {
+//	            clone.Metadata[k] = v
+//	        }
+//	    }
+//
+//	    // Deep copy pointer
+//	    if o.Billing != nil {
+//	        addr := *o.Billing
+//	        clone.Billing = &addr
+//	    }
+//
+//	    return clone
 //	}
+//
+// # Nested Structs
+//
+// If a nested struct itself contains reference fields, recursively apply
+// the same deep copy logic. Consider implementing Clone() on nested types
+// and calling it from the parent:
+//
+//	func (o Order) Clone() Order {
+//	    clone := Order{ID: o.ID}
+//	    if o.Billing != nil {
+//	        billingClone := o.Billing.Clone()
+//	        clone.Billing = &billingClone
+//	    }
+//	    return clone
+//	}
+//
+// # Verification
+//
+// To verify your Clone implementation is correct, test that modifying
+// the clone does not affect the original:
+//
+//	original := Order{Items: []Item{{Name: "A"}}}
+//	clone := original.Clone()
+//	clone.Items[0].Name = "B"
+//	assert(original.Items[0].Name == "A")  // Must still be "A"
 type Cloner[T any] interface {
 	Clone() T
 }

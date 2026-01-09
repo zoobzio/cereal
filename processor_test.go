@@ -3,6 +3,7 @@ package cereal
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -1005,6 +1006,258 @@ func TestProcessor_Load_UnmarshalError(t *testing.T) {
 	_, err := proc.Load(context.Background(), []byte("invalid json"))
 	if err == nil {
 		t.Error("Load() should fail on invalid JSON")
+	}
+}
+
+// --- Error path tests ---
+
+func TestProcessor_Load_DecryptError_InvalidBase64(t *testing.T) {
+	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	// Email field contains invalid base64
+	input := `{"id":"123","email":"not-valid-base64!!!"}`
+	_, err := proc.Load(context.Background(), []byte(input))
+	if err == nil {
+		t.Error("Load() should fail on invalid base64")
+	}
+	if !strings.Contains(err.Error(), "base64") {
+		t.Errorf("Load() error = %q, should mention base64", err.Error())
+	}
+}
+
+func TestProcessor_Load_DecryptError_CorruptedCiphertext(t *testing.T) {
+	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	// Valid base64 but not valid AES ciphertext
+	input := `{"id":"123","email":"YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="}`
+	_, err := proc.Load(context.Background(), []byte(input))
+	if err == nil {
+		t.Error("Load() should fail on corrupted ciphertext")
+	}
+	if !strings.Contains(err.Error(), "decrypt") {
+		t.Errorf("Load() error = %q, should mention decrypt", err.Error())
+	}
+}
+
+func TestProcessor_Store_MarshalError(t *testing.T) {
+	// Create a codec that fails on marshal
+	failCodec := &failingCodec{failMarshal: true}
+	proc, _ := NewProcessor[SimpleUser](failCodec)
+
+	user := &SimpleUser{ID: "123", Name: "test"}
+	_, err := proc.Store(context.Background(), user)
+	if err == nil {
+		t.Error("Store() should fail when marshal fails")
+	}
+}
+
+func TestProcessor_Send_MarshalError(t *testing.T) {
+	failCodec := &failingCodec{failMarshal: true}
+	proc, _ := NewProcessor[SimpleUser](failCodec)
+
+	user := &SimpleUser{ID: "123", Name: "test"}
+	_, err := proc.Send(context.Background(), user)
+	if err == nil {
+		t.Error("Send() should fail when marshal fails")
+	}
+}
+
+type failingCodec struct {
+	failMarshal   bool
+	failUnmarshal bool
+}
+
+func (c *failingCodec) ContentType() string { return "application/json" }
+
+func (c *failingCodec) Marshal(v any) ([]byte, error) {
+	if c.failMarshal {
+		return nil, fmt.Errorf("marshal failed")
+	}
+	return json.Marshal(v)
+}
+
+func (c *failingCodec) Unmarshal(data []byte, v any) error {
+	if c.failUnmarshal {
+		return fmt.Errorf("unmarshal failed")
+	}
+	return json.Unmarshal(data, v)
+}
+
+// --- Validation error tests ---
+
+func TestProcessor_Validate_CalledOnce(t *testing.T) {
+	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+
+	// First validate should fail (no encryptor)
+	err1 := proc.Validate()
+	if err1 == nil {
+		t.Fatal("Validate() should fail without encryptor")
+	}
+
+	// Add encryptor
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	// Second validate still returns cached error (validateOnce)
+	err2 := proc.Validate()
+	if err2 == nil || err2.Error() != err1.Error() {
+		t.Error("Validate() should return cached error")
+	}
+}
+
+func TestProcessor_Operations_FailWithoutValidation(t *testing.T) {
+	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	// Don't set encryptor - validation will fail
+
+	ctx := context.Background()
+
+	// All operations should fail validation
+	_, err := proc.Store(ctx, &EncryptUser{ID: "123", Email: "test@example.com"})
+	if err == nil {
+		t.Error("Store() should fail validation")
+	}
+
+	_, err = proc.Load(ctx, []byte(`{"id":"123","email":"encrypted"}`))
+	if err == nil {
+		t.Error("Load() should fail validation")
+	}
+}
+
+// --- Empty/nil handling tests ---
+
+func TestProcessor_Store_EmptyFields(t *testing.T) {
+	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	user := &EncryptUser{ID: "123", Email: ""} // Empty email
+	data, err := proc.Store(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	loaded, err := proc.Load(context.Background(), data)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if loaded.Email != "" {
+		t.Errorf("Load() Email = %q, want empty", loaded.Email)
+	}
+}
+
+func TestProcessor_Send_EmptyFields(t *testing.T) {
+	proc, _ := NewProcessor[MaskUser](&testCodec{})
+
+	user := &MaskUser{ID: "123", Email: "", SSN: ""} // Empty fields
+	data, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	var sent MaskUser
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+	// Empty strings should be masked (result may be empty or masked format)
+	// Just verify no error occurred
+}
+
+func TestProcessor_Receive_EmptyFields(t *testing.T) {
+	proc, _ := NewProcessor[HashUser](&testCodec{})
+
+	input := `{"id":"123","password":""}` // Empty password
+	user, err := proc.Receive(context.Background(), []byte(input))
+	if err != nil {
+		t.Fatalf("Receive() error: %v", err)
+	}
+	// Empty password should be hashed (hash of empty string)
+	if user.Password == "" {
+		t.Error("Receive() should hash empty password")
+	}
+}
+
+// --- Slice and Map error path tests ---
+
+type SliceDecryptUser struct {
+	ID     string   `json:"id"`
+	Emails []string `json:"emails" store.encrypt:"aes" load.decrypt:"aes"`
+}
+
+func (u SliceDecryptUser) Clone() SliceDecryptUser {
+	clone := SliceDecryptUser{ID: u.ID}
+	if u.Emails != nil {
+		clone.Emails = make([]string, len(u.Emails))
+		copy(clone.Emails, u.Emails)
+	}
+	return clone
+}
+
+func TestProcessor_Load_SliceDecryptError(t *testing.T) {
+	proc, _ := NewProcessor[SliceDecryptUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	// Slice with invalid base64
+	input := `{"id":"123","emails":["invalid-base64!!!"]}`
+	_, err := proc.Load(context.Background(), []byte(input))
+	if err == nil {
+		t.Error("Load() should fail on invalid base64 in slice")
+	}
+}
+
+type MapDecryptUser struct {
+	ID     string            `json:"id"`
+	Emails map[string]string `json:"emails" store.encrypt:"aes" load.decrypt:"aes"`
+}
+
+func (u MapDecryptUser) Clone() MapDecryptUser {
+	clone := MapDecryptUser{ID: u.ID}
+	if u.Emails != nil {
+		clone.Emails = make(map[string]string)
+		for k, v := range u.Emails {
+			clone.Emails[k] = v
+		}
+	}
+	return clone
+}
+
+func TestProcessor_Load_MapDecryptError(t *testing.T) {
+	proc, _ := NewProcessor[MapDecryptUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	// Map with invalid base64
+	input := `{"id":"123","emails":{"work":"invalid-base64!!!"}}`
+	_, err := proc.Load(context.Background(), []byte(input))
+	if err == nil {
+		t.Error("Load() should fail on invalid base64 in map")
+	}
+}
+
+// --- Context cancellation tests ---
+
+func TestProcessor_Operations_WithCancelledContext(t *testing.T) {
+	proc, _ := NewProcessor[SimpleUser](&testCodec{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// Operations should still work (context is for signaling only, not enforced)
+	user := &SimpleUser{ID: "123", Name: "test"}
+	_, err := proc.Store(ctx, user)
+	// Context cancellation isn't checked by the processor itself
+	// This just verifies no panic occurs
+	if err != nil {
+		t.Logf("Store with cancelled context: %v", err)
+	}
+
+	_, err = proc.Send(ctx, user)
+	if err != nil {
+		t.Logf("Send with cancelled context: %v", err)
 	}
 }
 

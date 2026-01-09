@@ -1,11 +1,9 @@
 github.com/zoobzio/capitan v0.1.0 h1:OmTmZNtUhoIDIA7sQ50x9CP21JJUYkqZFyavY6torMA=
 github.com/zoobzio/capitan v0.1.0/go.mod h1:/OwNDIB1CHxwSzsF4e48B2+2e/IMIvTb0ZMgVeNyYig=
-github.com/zoobzio/capitan v1.0.0 h1:hEB8XX/FmtIDHKjjTJrUWXkDiZTYa/Jtd/qWO0yc2Dc=
-github.com/zoobzio/capitan v1.0.0/go.mod h1:UNZvqLPX2REzKLVfU4EfL9GRe6zddsj6aSWaqNUGAIw=
+github.com/zoobzio/cereal/json v0.0.0-20260108171505-27d286bbc522 h1:RrqXjX0kGyh8W1sd4VahaN2cRTvYOMpPoqTdEcU7x30=
+github.com/zoobzio/cereal/json v0.0.0-20260108171505-27d286bbc522/go.mod h1:2z8k0lil5a5Ow2JrPguURlUkLKeabPTekzSa9ogWpv8=
 github.com/zoobzio/sentinel v0.1.1 h1:V5js35LJ34WtBEYH2yqh4lYoEyULLWcjFgppVoJ5vYY=
 github.com/zoobzio/sentinel v0.1.1/go.mod h1:SbQpbfte5YTTUCKHF+s6XYdvg5Dh94MKjR7Qwuuw5Xo=
-github.com/zoobzio/sentinel v1.0.2 h1:hTs5Ke2Vi0VgOkoHSJF9G3BYnxTQjMbvOH+qbbQLaoY=
-github.com/zoobzio/sentinel v1.0.2/go.mod h1:gtsD0AYlTEI8ajpEQ3azb7BDZicdsESOB1dJpQqgDKc=
 golang.org/x/crypto v0.46.0 h1:cKRW/pmt1pKAfetfu+RCEvjvZkA9RimPbh7bhFjGVBU=
 golang.org/x/crypto v0.46.0/go.mod h1:Evb/oLKmMraqjZ2iQTwDwvCtJkczlDuTmdJXoZVzqU0=
 golang.org/x/sys v0.39.0 h1:CvCKL8MeisomCi6qNZ+wbb0DN9E5AATixKsvNtMoMFk=

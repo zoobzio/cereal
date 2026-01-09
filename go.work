@@ -5,6 +5,8 @@ use (
 	./bson
 	./json
 	./msgpack
+	./testing
+	./testing/integration
 	./xml
 	./yaml
 )
