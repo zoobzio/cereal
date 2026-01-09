@@ -134,3 +134,110 @@ func TestNewProcessor_InvalidTag_TypedError(t *testing.T) {
 		t.Errorf("NewProcessor() error should be *ConfigError, got %T", err)
 	}
 }
+
+// --- ConfigError edge cases ---
+
+func TestConfigError_ErrOnly(t *testing.T) {
+	err := &ConfigError{Err: ErrInvalidTag}
+
+	want := "invalid tag"
+	if got := err.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestConfigError_Unwrap(t *testing.T) {
+	err := &ConfigError{Err: ErrMissingEncryptor, Algorithm: "aes", Field: "Email"}
+
+	unwrapped := err.Unwrap()
+	if unwrapped != ErrMissingEncryptor {
+		t.Errorf("Unwrap() = %v, want %v", unwrapped, ErrMissingEncryptor)
+	}
+}
+
+// --- TransformError edge cases ---
+
+func TestTransformError_NoCause(t *testing.T) {
+	err := &TransformError{Err: ErrEncrypt, Field: "Email", Operation: "encrypt"}
+
+	want := "encrypt field Email"
+	if got := err.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestTransformError_Unwrap(t *testing.T) {
+	err := &TransformError{Err: ErrDecrypt, Field: "Email", Operation: "decrypt", Cause: errors.New("key error")}
+
+	unwrapped := err.Unwrap()
+	if unwrapped != ErrDecrypt {
+		t.Errorf("Unwrap() = %v, want %v", unwrapped, ErrDecrypt)
+	}
+}
+
+// --- CodecError edge cases ---
+
+func TestCodecError_NoCause(t *testing.T) {
+	err := &CodecError{Err: ErrMarshal}
+
+	want := "marshal failed"
+	if got := err.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestCodecError_Unwrap(t *testing.T) {
+	err := &CodecError{Err: ErrUnmarshal, Cause: errors.New("invalid json")}
+
+	unwrapped := err.Unwrap()
+	if unwrapped != ErrUnmarshal {
+		t.Errorf("Unwrap() = %v, want %v", unwrapped, ErrUnmarshal)
+	}
+}
+
+// --- errors.As extraction tests ---
+
+func TestErrorsAs_ConfigError(t *testing.T) {
+	err := newConfigError(ErrMissingHasher, "argon2", "Password")
+
+	var configErr *ConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatal("errors.As should extract *ConfigError")
+	}
+
+	if configErr.Algorithm != "argon2" {
+		t.Errorf("Algorithm = %q, want %q", configErr.Algorithm, "argon2")
+	}
+	if configErr.Field != "Password" {
+		t.Errorf("Field = %q, want %q", configErr.Field, "Password")
+	}
+}
+
+func TestErrorsAs_TransformError(t *testing.T) {
+	err := newTransformError(ErrHash, "hash", "Token", errors.New("hash failed"))
+
+	var transformErr *TransformError
+	if !errors.As(err, &transformErr) {
+		t.Fatal("errors.As should extract *TransformError")
+	}
+
+	if transformErr.Field != "Token" {
+		t.Errorf("Field = %q, want %q", transformErr.Field, "Token")
+	}
+	if transformErr.Operation != "hash" {
+		t.Errorf("Operation = %q, want %q", transformErr.Operation, "hash")
+	}
+}
+
+func TestErrorsAs_CodecError(t *testing.T) {
+	err := newCodecError(ErrMarshal, errors.New("encoding error"))
+
+	var codecErr *CodecError
+	if !errors.As(err, &codecErr) {
+		t.Fatal("errors.As should extract *CodecError")
+	}
+
+	if codecErr.Err != ErrMarshal {
+		t.Errorf("Err = %v, want %v", codecErr.Err, ErrMarshal)
+	}
+}

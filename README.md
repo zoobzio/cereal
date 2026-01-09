@@ -30,7 +30,24 @@ type User struct {
 - **Store** — Data going to storage. Encrypt before persisting.
 - **Send** — Data going to external destinations. Mask PII, redact secrets.
 
-The struct declares intent. The processor handles the rest.
+The struct declares intent. The processor handles the rest:
+
+```go
+proc, _ := cereal.NewProcessor[User](json.New())
+proc.SetEncryptor(cereal.EncryptAES, encryptor)
+
+// Receive: hash password from incoming request
+user, _ := proc.Receive(ctx, requestBody)
+
+// Store: encrypt email before saving to database
+dbBytes, _ := proc.Store(ctx, user)
+
+// Load: decrypt email when reading from database
+user, _ := proc.Load(ctx, dbBytes)
+
+// Send: mask email, redact token for API response
+responseBytes, _ := proc.Send(ctx, user)
+```
 
 ## Install
 

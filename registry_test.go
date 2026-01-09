@@ -263,3 +263,67 @@ func TestPlansCache_ConcurrentMultipleTypes(t *testing.T) {
 		}
 	}
 }
+
+// --- Cache stability tests ---
+
+func TestPlansCache_StableAfterReset(t *testing.T) {
+	// Create a processor and use it
+	p1, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	if err != nil {
+		t.Fatalf("NewProcessor() error: %v", err)
+	}
+
+	key := []byte("32-byte-key-for-aes-256-encrypt!")
+	enc, _ := cereal.AES(key)
+	p1.SetEncryptor(cereal.EncryptAES, enc)
+
+	user := &CacheTestUser{Name: "test", Email: "test@example.com"}
+	data1, err := p1.Store(t.Context(), user)
+	if err != nil {
+		t.Fatalf("p1.Store() before reset error: %v", err)
+	}
+
+	// Reset cache while processor is active
+	cereal.ResetPlansCache()
+
+	// Original processor should still work (has its own plans)
+	data2, err := p1.Store(t.Context(), user)
+	if err != nil {
+		t.Fatalf("p1.Store() after reset error: %v", err)
+	}
+
+	// New processor should work after reset
+	p2, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	if err != nil {
+		t.Fatalf("NewProcessor() after reset error: %v", err)
+	}
+	p2.SetEncryptor(cereal.EncryptAES, enc)
+
+	data3, err := p2.Store(t.Context(), user)
+	if err != nil {
+		t.Fatalf("p2.Store() after reset error: %v", err)
+	}
+
+	// All should produce non-empty encrypted data
+	if len(data1) == 0 || len(data2) == 0 || len(data3) == 0 {
+		t.Error("Store() should produce non-empty data")
+	}
+
+	// Original processor's loads should still work
+	loaded1, err := p1.Load(t.Context(), data2)
+	if err != nil {
+		t.Fatalf("p1.Load() after reset error: %v", err)
+	}
+	if loaded1.Email != user.Email {
+		t.Errorf("p1.Load() Email = %q, want %q", loaded1.Email, user.Email)
+	}
+
+	// New processor should be able to load data from old processor
+	loaded2, err := p2.Load(t.Context(), data1)
+	if err != nil {
+		t.Fatalf("p2.Load() error: %v", err)
+	}
+	if loaded2.Email != user.Email {
+		t.Errorf("p2.Load() Email = %q, want %q", loaded2.Email, user.Email)
+	}
+}

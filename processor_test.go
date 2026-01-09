@@ -1261,3 +1261,410 @@ func TestProcessor_Operations_WithCancelledContext(t *testing.T) {
 	}
 }
 
+// --- Deep nesting tests ---
+
+// Level3 is the deepest nested struct.
+type Level3 struct {
+	Secret string `json:"secret" send.redact:"[L3]"`
+}
+
+// Level2 contains Level3.
+type Level2 struct {
+	Data   string `json:"data" send.redact:"[L2]"`
+	Nested Level3 `json:"nested"`
+}
+
+// Level1 contains Level2.
+type Level1 struct {
+	Info   string `json:"info" send.redact:"[L1]"`
+	Nested Level2 `json:"nested"`
+}
+
+// DeeplyNestedUser has 3 levels of nesting.
+type DeeplyNestedUser struct {
+	ID     string `json:"id"`
+	Nested Level1 `json:"nested"`
+}
+
+func (u DeeplyNestedUser) Clone() DeeplyNestedUser {
+	return DeeplyNestedUser{ID: u.ID, Nested: u.Nested}
+}
+
+func TestProcessor_Send_DeeplyNestedStruct(t *testing.T) {
+	proc, _ := NewProcessor[DeeplyNestedUser](&testCodec{})
+
+	user := &DeeplyNestedUser{
+		ID: "123",
+		Nested: Level1{
+			Info: "level1-info",
+			Nested: Level2{
+				Data: "level2-data",
+				Nested: Level3{
+					Secret: "level3-secret",
+				},
+			},
+		},
+	}
+	data, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	var sent DeeplyNestedUser
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+
+	if sent.Nested.Info != "[L1]" {
+		t.Errorf("Level1 Info = %q, want %q", sent.Nested.Info, "[L1]")
+	}
+	if sent.Nested.Nested.Data != "[L2]" {
+		t.Errorf("Level2 Data = %q, want %q", sent.Nested.Nested.Data, "[L2]")
+	}
+	if sent.Nested.Nested.Nested.Secret != "[L3]" {
+		t.Errorf("Level3 Secret = %q, want %q", sent.Nested.Nested.Nested.Secret, "[L3]")
+	}
+}
+
+// PointerLevel2 is a pointer-based nesting level.
+type PointerLevel2 struct {
+	Value string `json:"value" send.redact:"[PL2]"`
+}
+
+// PointerLevel1 contains a pointer to PointerLevel2.
+type PointerLevel1 struct {
+	Data   string         `json:"data" send.redact:"[PL1]"`
+	Nested *PointerLevel2 `json:"nested"`
+}
+
+// DeeplyNestedPointerUser has pointer nesting.
+type DeeplyNestedPointerUser struct {
+	ID     string         `json:"id"`
+	Nested *PointerLevel1 `json:"nested"`
+}
+
+func (u DeeplyNestedPointerUser) Clone() DeeplyNestedPointerUser {
+	clone := DeeplyNestedPointerUser{ID: u.ID}
+	if u.Nested != nil {
+		nested1 := *u.Nested
+		clone.Nested = &nested1
+		if u.Nested.Nested != nil {
+			nested2 := *u.Nested.Nested
+			clone.Nested.Nested = &nested2
+		}
+	}
+	return clone
+}
+
+func TestProcessor_Send_DeeplyNestedPointer(t *testing.T) {
+	proc, _ := NewProcessor[DeeplyNestedPointerUser](&testCodec{})
+
+	user := &DeeplyNestedPointerUser{
+		ID: "123",
+		Nested: &PointerLevel1{
+			Data: "level1-data",
+			Nested: &PointerLevel2{
+				Value: "level2-value",
+			},
+		},
+	}
+	data, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	var sent DeeplyNestedPointerUser
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+
+	if sent.Nested.Data != "[PL1]" {
+		t.Errorf("Level1 Data = %q, want %q", sent.Nested.Data, "[PL1]")
+	}
+	if sent.Nested.Nested.Value != "[PL2]" {
+		t.Errorf("Level2 Value = %q, want %q", sent.Nested.Nested.Value, "[PL2]")
+	}
+}
+
+func TestProcessor_Send_DeeplyNestedPointer_NilIntermediate(t *testing.T) {
+	proc, _ := NewProcessor[DeeplyNestedPointerUser](&testCodec{})
+
+	// First level pointer is set, but second level is nil
+	user := &DeeplyNestedPointerUser{
+		ID: "123",
+		Nested: &PointerLevel1{
+			Data:   "level1-data",
+			Nested: nil,
+		},
+	}
+	data, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	var sent DeeplyNestedPointerUser
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+
+	if sent.Nested.Data != "[PL1]" {
+		t.Errorf("Level1 Data = %q, want %q", sent.Nested.Data, "[PL1]")
+	}
+	if sent.Nested.Nested != nil {
+		t.Error("Level2 should remain nil")
+	}
+}
+
+// --- Empty collection tests ---
+
+func TestProcessor_Send_EmptySlice(t *testing.T) {
+	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	user := &SliceUser{
+		ID:     "123",
+		Emails: []string{}, // Empty slice
+	}
+	data, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	var sent SliceUser
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+
+	if len(sent.Emails) != 0 {
+		t.Errorf("Emails length = %d, want 0", len(sent.Emails))
+	}
+}
+
+func TestProcessor_Send_EmptyMap(t *testing.T) {
+	proc, _ := NewProcessor[MapUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	user := &MapUser{
+		ID:     "123",
+		Emails: map[string]string{}, // Empty map
+	}
+	data, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	var sent MapUser
+	if err := json.Unmarshal(data, &sent); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+
+	if len(sent.Emails) != 0 {
+		t.Errorf("Emails length = %d, want 0", len(sent.Emails))
+	}
+}
+
+func TestProcessor_Store_NilSlice(t *testing.T) {
+	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	user := &SliceUser{
+		ID:     "123",
+		Emails: nil, // Nil slice
+		SSNs:   nil,
+	}
+	data, err := proc.Store(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	loaded, err := proc.Load(context.Background(), data)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if loaded.Emails != nil {
+		t.Errorf("Emails = %v, want nil", loaded.Emails)
+	}
+}
+
+func TestProcessor_Store_NilMap(t *testing.T) {
+	proc, _ := NewProcessor[MapUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	user := &MapUser{
+		ID:     "123",
+		Emails: nil, // Nil map
+		SSNs:   nil,
+	}
+	data, err := proc.Store(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	loaded, err := proc.Load(context.Background(), data)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if loaded.Emails != nil {
+		t.Errorf("Emails = %v, want nil", loaded.Emails)
+	}
+}
+
+// --- Validation edge case tests ---
+
+// MultiMissingUser requires multiple handlers.
+type MultiMissingUser struct {
+	ID       string `json:"id"`
+	Email    string `json:"email" store.encrypt:"aes"`
+	Password string `json:"password" store.encrypt:"rsa"`
+}
+
+func (u MultiMissingUser) Clone() MultiMissingUser { return u }
+
+func TestProcessor_Validate_MultipleErrors(t *testing.T) {
+	proc, _ := NewProcessor[MultiMissingUser](&testCodec{})
+
+	// Don't configure any encryptors - both aes and rsa are missing
+	err := proc.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail when encryptors are missing")
+	}
+
+	// Should return first error encountered
+	if !strings.Contains(err.Error(), "missing encryptor") {
+		t.Errorf("Validate() error = %q, want 'missing encryptor'", err.Error())
+	}
+}
+
+// --- Interface override error path tests ---
+
+// ErrorHashableUser implements Hashable but returns an error.
+type ErrorHashableUser struct {
+	ID       string `json:"id"`
+	Password string `json:"password" receive.hash:"sha256"`
+}
+
+func (u ErrorHashableUser) Clone() ErrorHashableUser { return u }
+
+func (u *ErrorHashableUser) Hash(_ map[HashAlgo]Hasher) error {
+	return fmt.Errorf("hash override error")
+}
+
+func TestProcessor_Receive_HashableError(t *testing.T) {
+	proc, _ := NewProcessor[ErrorHashableUser](&testCodec{})
+
+	input := `{"id":"123","password":"secret"}`
+	_, err := proc.Receive(context.Background(), []byte(input))
+	if err == nil {
+		t.Fatal("Receive() should fail when Hashable.Hash returns error")
+	}
+	if !strings.Contains(err.Error(), "hash override error") {
+		t.Errorf("Receive() error = %q, want 'hash override error'", err.Error())
+	}
+}
+
+// ErrorEncryptableUser implements Encryptable but returns an error.
+type ErrorEncryptableUser struct {
+	ID    string `json:"id"`
+	Email string `json:"email" store.encrypt:"aes"`
+}
+
+func (u ErrorEncryptableUser) Clone() ErrorEncryptableUser { return u }
+
+func (u *ErrorEncryptableUser) Encrypt(_ map[EncryptAlgo]Encryptor) error {
+	return fmt.Errorf("encrypt override error")
+}
+
+func TestProcessor_Store_EncryptableError(t *testing.T) {
+	proc, _ := NewProcessor[ErrorEncryptableUser](&testCodec{})
+
+	user := &ErrorEncryptableUser{ID: "123", Email: "test@example.com"}
+	_, err := proc.Store(context.Background(), user)
+	if err == nil {
+		t.Fatal("Store() should fail when Encryptable.Encrypt returns error")
+	}
+	if !strings.Contains(err.Error(), "encrypt override error") {
+		t.Errorf("Store() error = %q, want 'encrypt override error'", err.Error())
+	}
+}
+
+// ErrorDecryptableUser implements Decryptable but returns an error.
+type ErrorDecryptableUser struct {
+	ID    string `json:"id"`
+	Email string `json:"email" load.decrypt:"aes"`
+}
+
+func (u ErrorDecryptableUser) Clone() ErrorDecryptableUser { return u }
+
+func (u *ErrorDecryptableUser) Decrypt(_ map[EncryptAlgo]Encryptor) error {
+	return fmt.Errorf("decrypt override error")
+}
+
+func TestProcessor_Load_DecryptableError(t *testing.T) {
+	proc, _ := NewProcessor[ErrorDecryptableUser](&testCodec{})
+
+	input := `{"id":"123","email":"encrypted-data"}`
+	_, err := proc.Load(context.Background(), []byte(input))
+	if err == nil {
+		t.Fatal("Load() should fail when Decryptable.Decrypt returns error")
+	}
+	if !strings.Contains(err.Error(), "decrypt override error") {
+		t.Errorf("Load() error = %q, want 'decrypt override error'", err.Error())
+	}
+}
+
+// ErrorMaskableUser implements Maskable but returns an error.
+type ErrorMaskableUser struct {
+	ID    string `json:"id"`
+	Email string `json:"email" send.mask:"email"`
+}
+
+func (u ErrorMaskableUser) Clone() ErrorMaskableUser { return u }
+
+func (u *ErrorMaskableUser) Mask(_ map[MaskType]Masker) error {
+	return fmt.Errorf("mask override error")
+}
+
+func TestProcessor_Send_MaskableError(t *testing.T) {
+	proc, _ := NewProcessor[ErrorMaskableUser](&testCodec{})
+
+	user := &ErrorMaskableUser{ID: "123", Email: "test@example.com"}
+	_, err := proc.Send(context.Background(), user)
+	if err == nil {
+		t.Fatal("Send() should fail when Maskable.Mask returns error")
+	}
+	if !strings.Contains(err.Error(), "mask override error") {
+		t.Errorf("Send() error = %q, want 'mask override error'", err.Error())
+	}
+}
+
+// ErrorRedactableUser implements Redactable but returns an error.
+type ErrorRedactableUser struct {
+	ID       string `json:"id"`
+	Password string `json:"password" send.redact:"***"`
+}
+
+func (u ErrorRedactableUser) Clone() ErrorRedactableUser { return u }
+
+func (u *ErrorRedactableUser) Redact() error {
+	return fmt.Errorf("redact override error")
+}
+
+func TestProcessor_Send_RedactableError(t *testing.T) {
+	proc, _ := NewProcessor[ErrorRedactableUser](&testCodec{})
+
+	user := &ErrorRedactableUser{ID: "123", Password: "secret"}
+	_, err := proc.Send(context.Background(), user)
+	if err == nil {
+		t.Fatal("Send() should fail when Redactable.Redact returns error")
+	}
+	if !strings.Contains(err.Error(), "redact override error") {
+		t.Errorf("Send() error = %q, want 'redact override error'", err.Error())
+	}
+}
+
