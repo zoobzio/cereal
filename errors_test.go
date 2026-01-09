@@ -150,7 +150,7 @@ func TestConfigError_Unwrap(t *testing.T) {
 	err := &ConfigError{Err: ErrMissingEncryptor, Algorithm: "aes", Field: "Email"}
 
 	unwrapped := err.Unwrap()
-	if unwrapped != ErrMissingEncryptor {
+	if !errors.Is(unwrapped, ErrMissingEncryptor) {
 		t.Errorf("Unwrap() = %v, want %v", unwrapped, ErrMissingEncryptor)
 	}
 }
@@ -170,7 +170,7 @@ func TestTransformError_Unwrap(t *testing.T) {
 	err := &TransformError{Err: ErrDecrypt, Field: "Email", Operation: "decrypt", Cause: errors.New("key error")}
 
 	unwrapped := err.Unwrap()
-	if unwrapped != ErrDecrypt {
+	if !errors.Is(unwrapped, ErrDecrypt) {
 		t.Errorf("Unwrap() = %v, want %v", unwrapped, ErrDecrypt)
 	}
 }
@@ -190,7 +190,7 @@ func TestCodecError_Unwrap(t *testing.T) {
 	err := &CodecError{Err: ErrUnmarshal, Cause: errors.New("invalid json")}
 
 	unwrapped := err.Unwrap()
-	if unwrapped != ErrUnmarshal {
+	if !errors.Is(unwrapped, ErrUnmarshal) {
 		t.Errorf("Unwrap() = %v, want %v", unwrapped, ErrUnmarshal)
 	}
 }
@@ -237,7 +237,7 @@ func TestErrorsAs_CodecError(t *testing.T) {
 		t.Fatal("errors.As should extract *CodecError")
 	}
 
-	if codecErr.Err != ErrMarshal {
+	if !errors.Is(codecErr.Err, ErrMarshal) {
 		t.Errorf("Err = %v, want %v", codecErr.Err, ErrMarshal)
 	}
 }
