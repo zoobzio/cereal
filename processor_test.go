@@ -835,6 +835,124 @@ func TestProcessor_StoreLoad_MapEncrypt(t *testing.T) {
 	}
 }
 
+// --- Clone validation tests ---
+
+func TestProcessor_Send_SliceCloneValidation(t *testing.T) {
+	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	originalEmails := []string{"alice@example.com", "bob@example.com"}
+	user := &SliceUser{
+		ID:     "123",
+		Emails: originalEmails,
+	}
+
+	// Capture original values
+	emailsCopy := make([]string, len(originalEmails))
+	copy(emailsCopy, originalEmails)
+
+	_, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	// Verify original slice is unchanged
+	for i, email := range user.Emails {
+		if email != emailsCopy[i] {
+			t.Errorf("Send() mutated original Emails[%d]: got %q, want %q", i, email, emailsCopy[i])
+		}
+	}
+}
+
+func TestProcessor_Send_MapCloneValidation(t *testing.T) {
+	proc, _ := NewProcessor[MapUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	originalEmails := map[string]string{"work": "alice@example.com", "home": "bob@example.com"}
+	user := &MapUser{
+		ID:     "123",
+		Emails: originalEmails,
+	}
+
+	// Capture original values
+	emailsCopy := make(map[string]string)
+	for k, v := range originalEmails {
+		emailsCopy[k] = v
+	}
+
+	_, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	// Verify original map is unchanged
+	for k, email := range user.Emails {
+		if email != emailsCopy[k] {
+			t.Errorf("Send() mutated original Emails[%s]: got %q, want %q", k, email, emailsCopy[k])
+		}
+	}
+}
+
+func TestProcessor_Store_SliceCloneValidation(t *testing.T) {
+	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	originalSSNs := []string{"123-45-6789", "987-65-4321"}
+	user := &SliceUser{
+		ID:   "123",
+		SSNs: originalSSNs,
+	}
+
+	// Capture original values
+	ssnsCopy := make([]string, len(originalSSNs))
+	copy(ssnsCopy, originalSSNs)
+
+	_, err := proc.Store(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	// Verify original slice is unchanged
+	for i, ssn := range user.SSNs {
+		if ssn != ssnsCopy[i] {
+			t.Errorf("Store() mutated original SSNs[%d]: got %q, want %q", i, ssn, ssnsCopy[i])
+		}
+	}
+}
+
+func TestProcessor_Store_MapCloneValidation(t *testing.T) {
+	proc, _ := NewProcessor[MapUser](&testCodec{})
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	originalSSNs := map[string]string{"primary": "123-45-6789", "spouse": "987-65-4321"}
+	user := &MapUser{
+		ID:   "123",
+		SSNs: originalSSNs,
+	}
+
+	// Capture original values
+	ssnsCopy := make(map[string]string)
+	for k, v := range originalSSNs {
+		ssnsCopy[k] = v
+	}
+
+	_, err := proc.Store(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	// Verify original map is unchanged
+	for k, ssn := range user.SSNs {
+		if ssn != ssnsCopy[k] {
+			t.Errorf("Store() mutated original SSNs[%s]: got %q, want %q", k, ssn, ssnsCopy[k])
+		}
+	}
+}
+
 // --- Bytes field tests ---
 
 // BytesUser has []byte fields with tags.

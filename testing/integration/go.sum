@@ -10,10 +10,8 @@ github.com/vmihailenco/msgpack/v5 v5.4.1 h1:cQriyiUvjTwOHg8QZaPihLWeRAAVoCpE00IU
 github.com/vmihailenco/msgpack/v5 v5.4.1/go.mod h1:GaZTsDaehaPpQVyxrf5mtQlH+pc21PIudVV/E3rRQok=
 github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAhO7/IwNM9g=
 github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
-github.com/zoobzio/capitan v0.1.0 h1:OmTmZNtUhoIDIA7sQ50x9CP21JJUYkqZFyavY6torMA=
-github.com/zoobzio/capitan v0.1.0/go.mod h1:/OwNDIB1CHxwSzsF4e48B2+2e/IMIvTb0ZMgVeNyYig=
-github.com/zoobzio/sentinel v0.1.1 h1:V5js35LJ34WtBEYH2yqh4lYoEyULLWcjFgppVoJ5vYY=
-github.com/zoobzio/sentinel v0.1.1/go.mod h1:SbQpbfte5YTTUCKHF+s6XYdvg5Dh94MKjR7Qwuuw5Xo=
+github.com/zoobzio/capitan v1.0.0 h1:hEB8XX/FmtIDHKjjTJrUWXkDiZTYa/Jtd/qWO0yc2Dc=
+github.com/zoobzio/sentinel v1.0.2 h1:hTs5Ke2Vi0VgOkoHSJF9G3BYnxTQjMbvOH+qbbQLaoY=
 go.mongodb.org/mongo-driver v1.17.3 h1:TQyXhnsWfWtgAhMtOgtYHMTkZIfBTpMTsMnd9ZBeHxQ=
 go.mongodb.org/mongo-driver v1.17.3/go.mod h1:Hy04i7O2kC4RS06ZrhPRqj/u4DTYkFDAAccj+rVKqgQ=
 golang.org/x/crypto v0.46.0 h1:cKRW/pmt1pKAfetfu+RCEvjvZkA9RimPbh7bhFjGVBU=

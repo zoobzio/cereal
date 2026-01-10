@@ -1,9 +1,5 @@
-github.com/zoobzio/capitan v0.1.0 h1:OmTmZNtUhoIDIA7sQ50x9CP21JJUYkqZFyavY6torMA=
-github.com/zoobzio/capitan v0.1.0/go.mod h1:/OwNDIB1CHxwSzsF4e48B2+2e/IMIvTb0ZMgVeNyYig=
 github.com/zoobzio/capitan v1.0.0 h1:hEB8XX/FmtIDHKjjTJrUWXkDiZTYa/Jtd/qWO0yc2Dc=
 github.com/zoobzio/capitan v1.0.0/go.mod h1:UNZvqLPX2REzKLVfU4EfL9GRe6zddsj6aSWaqNUGAIw=
-github.com/zoobzio/sentinel v0.1.1 h1:V5js35LJ34WtBEYH2yqh4lYoEyULLWcjFgppVoJ5vYY=
-github.com/zoobzio/sentinel v0.1.1/go.mod h1:SbQpbfte5YTTUCKHF+s6XYdvg5Dh94MKjR7Qwuuw5Xo=
 github.com/zoobzio/sentinel v1.0.2 h1:hTs5Ke2Vi0VgOkoHSJF9G3BYnxTQjMbvOH+qbbQLaoY=
 github.com/zoobzio/sentinel v1.0.2/go.mod h1:gtsD0AYlTEI8ajpEQ3azb7BDZicdsESOB1dJpQqgDKc=
 golang.org/x/crypto v0.46.0 h1:cKRW/pmt1pKAfetfu+RCEvjvZkA9RimPbh7bhFjGVBU=
