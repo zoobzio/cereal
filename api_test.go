@@ -183,7 +183,11 @@ func (m maskableTest) Clone() maskableTest { return m }
 
 func (m *maskableTest) Mask(maskers map[cereal.MaskType]cereal.Masker) error {
 	if masker, ok := maskers[cereal.MaskEmail]; ok {
-		m.Email = masker.Mask(m.Email)
+		masked, err := masker.Mask(m.Email)
+		if err != nil {
+			return err
+		}
+		m.Email = masked
 	}
 	return nil
 }

@@ -845,7 +845,11 @@ func (p *Processor[T]) applyMask(obj *T) error {
 			for i := 0; i < field.Len(); i++ {
 				elem := field.Index(i)
 				if elem.CanSet() {
-					elem.SetString(masker.Mask(elem.String()))
+					masked, err := masker.Mask(elem.String())
+					if err != nil {
+						return newTransformError(ErrMask, "mask", fmt.Sprintf("%s[%d]", plan.name, i), err)
+					}
+					elem.SetString(masked)
 				}
 			}
 			continue
@@ -856,7 +860,11 @@ func (p *Processor[T]) applyMask(obj *T) error {
 			iter := field.MapRange()
 			for iter.Next() {
 				k, v := iter.Key(), iter.Value()
-				field.SetMapIndex(k, reflect.ValueOf(masker.Mask(v.String())))
+				masked, err := masker.Mask(v.String())
+				if err != nil {
+					return newTransformError(ErrMask, "mask", fmt.Sprintf("%s[%v]", plan.name, k.Interface()), err)
+				}
+				field.SetMapIndex(k, reflect.ValueOf(masked))
 			}
 			continue
 		}
@@ -873,7 +881,10 @@ func (p *Processor[T]) applyMask(obj *T) error {
 			value = field.String()
 		}
 
-		masked := masker.Mask(value)
+		masked, err := masker.Mask(value)
+		if err != nil {
+			return newTransformError(ErrMask, "mask", plan.name, err)
+		}
 
 		if plan.isBytes {
 			field.SetBytes([]byte(masked))

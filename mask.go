@@ -1,6 +1,7 @@
 package cereal
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 )
@@ -23,7 +24,8 @@ const (
 // Masker applies content-aware masking.
 type Masker interface {
 	// Mask applies masking to the value.
-	Mask(value string) string
+	// Returns an error if the value doesn't match the expected format.
+	Mask(value string) (string, error)
 }
 
 // ssnMasker masks SSN format: 123-45-6789 -> ***-**-6789
@@ -35,16 +37,14 @@ func SSNMasker() Masker {
 	return &ssnMasker{}
 }
 
-func (m *ssnMasker) Mask(value string) string {
-	// Extract only digits
+func (m *ssnMasker) Mask(value string) (string, error) {
 	digits := extractDigits(value)
-	if len(digits) < 4 {
-		return strings.Repeat("*", len(value))
+	if len(digits) != 9 {
+		return "", fmt.Errorf("%w: SSN requires exactly 9 digits, got %d", ErrMask, len(digits))
 	}
 
-	// Keep last 4, mask the rest
 	last4 := digits[len(digits)-4:]
-	return "***-**-" + last4
+	return "***-**-" + last4, nil
 }
 
 // emailMasker masks email format: alice@example.com -> a***@example.com
@@ -56,21 +56,19 @@ func EmailMasker() Masker {
 	return &emailMasker{}
 }
 
-func (m *emailMasker) Mask(value string) string {
+func (m *emailMasker) Mask(value string) (string, error) {
 	atIdx := strings.LastIndex(value, "@")
 	if atIdx < 1 {
-		// No @ or @ at start, mask everything
-		return strings.Repeat("*", len(value))
+		return "", fmt.Errorf("%w: invalid email format, missing or misplaced @", ErrMask)
 	}
 
 	local := value[:atIdx]
 	domain := value[atIdx:]
 
-	// Keep first char, mask the rest of local part
 	if len(local) == 1 {
-		return local + "***" + domain
+		return local + "***" + domain, nil
 	}
-	return string(local[0]) + "***" + domain
+	return string(local[0]) + "***" + domain, nil
 }
 
 // phoneMasker masks phone format: (555) 123-4567 -> (***) ***-4567
@@ -82,25 +80,21 @@ func PhoneMasker() Masker {
 	return &phoneMasker{}
 }
 
-func (m *phoneMasker) Mask(value string) string {
+func (m *phoneMasker) Mask(value string) (string, error) {
 	digits := extractDigits(value)
-	if len(digits) < 4 {
-		return strings.Repeat("*", len(value))
+	if len(digits) < 7 {
+		return "", fmt.Errorf("%w: phone requires at least 7 digits, got %d", ErrMask, len(digits))
 	}
 
 	last4 := digits[len(digits)-4:]
 
-	// Detect common formats and preserve structure
 	switch {
 	case strings.HasPrefix(value, "(") && len(digits) >= 10:
-		// (555) 123-4567 format
-		return "(***) ***-" + last4
+		return "(***) ***-" + last4, nil
 	case len(digits) >= 10:
-		// Generic 10+ digit format
-		return "***-***-" + last4
+		return "***-***-" + last4, nil
 	default:
-		// Short format
-		return "***-" + last4
+		return "***-" + last4, nil
 	}
 }
 
@@ -113,26 +107,24 @@ func CardMasker() Masker {
 	return &cardMasker{}
 }
 
-func (m *cardMasker) Mask(value string) string {
+func (m *cardMasker) Mask(value string) (string, error) {
 	digits := extractDigits(value)
-	if len(digits) < 4 {
-		return strings.Repeat("*", len(value))
+	if len(digits) < 13 || len(digits) > 19 {
+		return "", fmt.Errorf("%w: card requires 13-19 digits, got %d", ErrMask, len(digits))
 	}
 
 	last4 := digits[len(digits)-4:]
 	masked := strings.Repeat("*", len(digits)-4)
 
-	// Detect spaced format (1234 5678 9012 3456)
 	if strings.Contains(value, " ") {
-		return maskWithSpaces(len(digits), last4)
+		return maskWithSpaces(len(digits), last4), nil
 	}
 
-	// Detect dashed format (1234-5678-9012-3456)
 	if strings.Contains(value, "-") {
-		return maskWithDashes(len(digits), last4)
+		return maskWithDashes(len(digits), last4), nil
 	}
 
-	return masked + last4
+	return masked + last4, nil
 }
 
 // extractDigits returns only the digit characters from a string.
@@ -179,35 +171,36 @@ func IPMasker() Masker {
 	return &ipMasker{}
 }
 
-func (m *ipMasker) Mask(value string) string {
+func (m *ipMasker) Mask(value string) (string, error) {
 	// Try IPv4 first
 	if parts := strings.Split(value, "."); len(parts) == 4 {
-		return parts[0] + "." + parts[1] + ".xxx.xxx"
+		return parts[0] + "." + parts[1] + ".xxx.xxx", nil
 	}
 
 	// Try IPv6
 	if strings.Contains(value, ":") {
-		return maskIPv6(value)
+		masked, ok := maskIPv6(value)
+		if !ok {
+			return "", fmt.Errorf("%w: invalid IPv6 format", ErrMask)
+		}
+		return masked, nil
 	}
 
-	// Unknown format, mask entirely
-	return strings.Repeat("*", len(value))
+	return "", fmt.Errorf("%w: invalid IP format", ErrMask)
 }
 
 // maskIPv6 masks an IPv6 address, preserving the network prefix.
-func maskIPv6(value string) string {
-	// Expand :: notation to full form for consistent handling
+// Returns the masked address and true if valid, or empty string and false if invalid.
+func maskIPv6(value string) (string, bool) {
 	expanded := expandIPv6(value)
 	parts := strings.Split(expanded, ":")
 
 	if len(parts) != 8 {
-		// Invalid IPv6, mask entirely
-		return strings.Repeat("*", len(value))
+		return "", false
 	}
 
-	// Keep first 4 groups (64-bit network prefix), mask last 4 (interface ID)
 	return parts[0] + ":" + parts[1] + ":" + parts[2] + ":" + parts[3] +
-		":xxxx:xxxx:xxxx:xxxx"
+		":xxxx:xxxx:xxxx:xxxx", true
 }
 
 // expandIPv6 expands :: notation to full 8-group form.
@@ -260,15 +253,21 @@ func UUIDMasker() Masker {
 	return &uuidMasker{}
 }
 
-func (m *uuidMasker) Mask(value string) string {
+func (m *uuidMasker) Mask(value string) (string, error) {
 	parts := strings.Split(value, "-")
 	if len(parts) != 5 {
-		// Not a valid UUID format, mask entirely
-		return strings.Repeat("*", len(value))
+		return "", fmt.Errorf("%w: UUID requires 5 hyphen-separated segments", ErrMask)
 	}
 
-	// Keep first segment, mask others with same length
-	return parts[0] + "-****-****-****-************"
+	// Validate segment lengths: 8-4-4-4-12
+	expectedLengths := []int{8, 4, 4, 4, 12}
+	for i, expected := range expectedLengths {
+		if len(parts[i]) != expected {
+			return "", fmt.Errorf("%w: UUID segment %d has length %d, expected %d", ErrMask, i+1, len(parts[i]), expected)
+		}
+	}
+
+	return parts[0] + "-****-****-****-************", nil
 }
 
 // ibanMasker masks IBANs: GB82WEST12345698765432 -> GB82************5432
@@ -280,16 +279,21 @@ func IBANMasker() Masker {
 	return &ibanMasker{}
 }
 
-func (m *ibanMasker) Mask(value string) string {
-	if len(value) <= 8 {
-		return strings.Repeat("*", len(value))
+func (m *ibanMasker) Mask(value string) (string, error) {
+	if len(value) < 15 || len(value) > 34 {
+		return "", fmt.Errorf("%w: IBAN requires 15-34 characters, got %d", ErrMask, len(value))
+	}
+
+	// First two characters must be letters (country code)
+	if len(value) < 2 || !unicode.IsLetter(rune(value[0])) || !unicode.IsLetter(rune(value[1])) {
+		return "", fmt.Errorf("%w: IBAN must start with 2-letter country code", ErrMask)
 	}
 
 	first4 := value[:4]
 	last4 := value[len(value)-4:]
 	middle := strings.Repeat("*", len(value)-8)
 
-	return first4 + middle + last4
+	return first4 + middle + last4, nil
 }
 
 // nameMasker masks names: John Smith -> J*** S***
@@ -301,19 +305,19 @@ func NameMasker() Masker {
 	return &nameMasker{}
 }
 
-func (m *nameMasker) Mask(value string) string {
+func (m *nameMasker) Mask(value string) (string, error) {
 	words := strings.Fields(value)
-	masked := make([]string, len(words))
+	if len(words) == 0 {
+		return "", fmt.Errorf("%w: name cannot be empty", ErrMask)
+	}
 
+	masked := make([]string, len(words))
 	for i, word := range words {
-		if len(word) == 0 {
-			continue
-		}
 		runes := []rune(word)
 		masked[i] = string(runes[0]) + strings.Repeat("*", len(runes)-1)
 	}
 
-	return strings.Join(masked, " ")
+	return strings.Join(masked, " "), nil
 }
 
 // builtinMaskers returns the default masker registry.

@@ -3,6 +3,7 @@ package cereal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -240,6 +241,23 @@ func TestProcessor_Send_Mask(t *testing.T) {
 	}
 	if sent.SSN == "123-45-6789" {
 		t.Error("Send() should mask SSN")
+	}
+}
+
+func TestProcessor_Send_MaskInvalidFormat(t *testing.T) {
+	proc, _ := NewProcessor[MaskUser](&testCodec{})
+
+	user := &MaskUser{
+		ID:    "123",
+		Email: "not-an-email",   // Invalid email format
+		SSN:   "123-45-6789",    // Valid SSN
+	}
+	_, err := proc.Send(context.Background(), user)
+	if err == nil {
+		t.Fatal("Send() should fail for invalid email format")
+	}
+	if !errors.Is(err, ErrMask) {
+		t.Errorf("Send() error = %v, want ErrMask", err)
 	}
 }
 
@@ -1152,18 +1170,14 @@ func TestProcessor_Store_EmptyFields(t *testing.T) {
 func TestProcessor_Send_EmptyFields(t *testing.T) {
 	proc, _ := NewProcessor[MaskUser](&testCodec{})
 
-	user := &MaskUser{ID: "123", Email: "", SSN: ""} // Empty fields
-	data, err := proc.Send(context.Background(), user)
-	if err != nil {
-		t.Fatalf("Send() error: %v", err)
+	user := &MaskUser{ID: "123", Email: "", SSN: ""} // Empty fields - invalid for masking
+	_, err := proc.Send(context.Background(), user)
+	if err == nil {
+		t.Fatal("Send() should fail for empty masked fields")
 	}
-
-	var sent MaskUser
-	if err := json.Unmarshal(data, &sent); err != nil {
-		t.Fatalf("Unmarshal() error: %v", err)
+	if !errors.Is(err, ErrMask) {
+		t.Errorf("Send() error = %v, want ErrMask", err)
 	}
-	// Empty strings should be masked (result may be empty or masked format)
-	// Just verify no error occurred
 }
 
 func TestProcessor_Receive_EmptyFields(t *testing.T) {
