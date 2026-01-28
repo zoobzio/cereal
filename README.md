@@ -33,20 +33,20 @@ type User struct {
 The struct declares intent. The processor handles the rest:
 
 ```go
-proc, _ := cereal.NewProcessor[User](json.New())
+proc, _ := cereal.NewProcessor[User]()
 proc.SetEncryptor(cereal.EncryptAES, encryptor)
 
-// Receive: hash password from incoming request
-user, _ := proc.Receive(ctx, requestBody)
+// Receive: hash password
+received, _ := proc.Receive(ctx, user)
 
-// Store: encrypt email before saving to database
-dbBytes, _ := proc.Store(ctx, user)
+// Store: encrypt email
+stored, _ := proc.Store(ctx, received)
 
-// Load: decrypt email when reading from database
-user, _ := proc.Load(ctx, dbBytes)
+// Load: decrypt email
+loaded, _ := proc.Load(ctx, stored)
 
-// Send: mask email, redact token for API response
-responseBytes, _ := proc.Send(ctx, user)
+// Send: mask email, redact token
+sent, _ := proc.Send(ctx, loaded)
 ```
 
 ## Install
@@ -81,14 +81,14 @@ func (u User) Clone() User { return u }
 func main() {
     ctx := context.Background()
 
-    // Create processor with JSON codec
-    proc, _ := cereal.NewProcessor[User](json.New())
+    // Create processor
+    proc, _ := cereal.NewProcessor[User]()
 
     // Configure encryption
     enc, _ := cereal.AES([]byte("32-byte-key-for-aes-256-encrypt!"))
     proc.SetEncryptor(cereal.EncryptAES, enc)
 
-    user := &User{
+    user := User{
         ID:       "123",
         Email:    "alice@example.com",
         Password: "secret",
@@ -96,8 +96,8 @@ func main() {
 
     // Store: encrypts email before persisting
     stored, _ := proc.Store(ctx, user)
-    fmt.Println(string(stored))
-    // {"id":"123","email":"<encrypted>","password":"secret"}
+    fmt.Println(stored.Email)
+    // <encrypted>
 
     // Load: decrypts email from storage
     loaded, _ := proc.Load(ctx, stored)
@@ -106,7 +106,13 @@ func main() {
 
     // Send: masks email for API response
     sent, _ := proc.Send(ctx, user)
-    fmt.Println(string(sent))
+    fmt.Println(sent.Email)
+    // a***@example.com
+
+    // Optional: codec-aware API for marshaling
+    proc.SetCodec(json.New())
+    sentBytes, _ := proc.Encode(ctx, &user)
+    fmt.Println(string(sentBytes))
     // {"id":"123","email":"a***@example.com","password":"secret"}
 }
 ```
@@ -125,9 +131,9 @@ func main() {
 - **Boundary-specific transforms** — Different rules for storage vs. API responses vs. incoming data
 - **Declarative via struct tags** — Security requirements live with the type definition
 - **Non-destructive** — Original values never modified; processor clones before transforming
-- **Type-safe generics** — `Processor[User]` only accepts `*User`
+- **Type-safe generics** — `Processor[User]` only accepts `User`
 - **Thread-safe** — Processors safe for concurrent use across goroutines
-- **Provider agnostic** — JSON, YAML, XML, MessagePack, BSON with identical semantics
+- **Provider agnostic** — JSON, YAML, XML, MessagePack, BSON via optional `SetCodec`
 - **Observable** — Emits signals for metrics and tracing via capitan
 
 ## Security as Structure
@@ -152,8 +158,8 @@ func ProcessPayment(p *Payment) error {
 }
 
 // Boundaries handle transforms
-stored, _ := proc.Store(ctx, payment)   // Card encrypted
-response, _ := proc.Send(ctx, payment)  // Card masked
+stored, _ := proc.Store(ctx, payment)    // Card encrypted
+sent, _ := proc.Send(ctx, payment)       // Card masked
 ```
 
 Security requirements change in one place. Every serialization path follows.

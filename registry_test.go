@@ -30,12 +30,12 @@ func (u CacheTestUser) Clone() CacheTestUser { return u }
 func TestNewProcessor_CreatesSeparateInstances(t *testing.T) {
 	cereal.ResetPlansCache()
 
-	p1, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p1, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
 
-	p2, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p2, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
@@ -55,8 +55,8 @@ func TestNewProcessor_SeparateEncryptorState(t *testing.T) {
 	enc1, _ := cereal.AES(key1)
 	enc2, _ := cereal.AES(key2)
 
-	p1, _ := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
-	p2, _ := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p1, _ := cereal.NewProcessor[CacheTestUser]()
+	p2, _ := cereal.NewProcessor[CacheTestUser]()
 
 	// Configure different encryptors
 	p1.SetEncryptor(cereal.EncryptAES, enc1)
@@ -73,7 +73,7 @@ func TestNewProcessor_SeparateEncryptorState(t *testing.T) {
 
 func TestResetPlansCache(t *testing.T) {
 	// Create a processor to populate the cache
-	_, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	_, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestResetPlansCache(t *testing.T) {
 	// Reset should not cause errors on subsequent NewProcessor calls
 	cereal.ResetPlansCache()
 
-	_, err = cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	_, err = cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() after reset error: %v", err)
 	}
@@ -100,12 +100,12 @@ func TestPlansCache_SharedBetweenProcessors(t *testing.T) {
 	cereal.ResetPlansCache()
 
 	// Create multiple processors for the same type
-	p1, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p1, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
 
-	p2, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p2, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
@@ -116,31 +116,34 @@ func TestPlansCache_SharedBetweenProcessors(t *testing.T) {
 	p1.SetEncryptor(cereal.EncryptAES, enc)
 	p2.SetEncryptor(cereal.EncryptAES, enc)
 
+	p1.SetCodec(&registryTestCodec{})
+	p2.SetCodec(&registryTestCodec{})
+
 	user := &CacheTestUser{Name: "test", Email: "test@example.com"}
 
-	data1, err := p1.Store(t.Context(), user)
+	data1, err := p1.Write(t.Context(), user)
 	if err != nil {
-		t.Fatalf("p1.Store() error: %v", err)
+		t.Fatalf("p1.Write() error: %v", err)
 	}
 
-	data2, err := p2.Store(t.Context(), user)
+	data2, err := p2.Write(t.Context(), user)
 	if err != nil {
-		t.Fatalf("p2.Store() error: %v", err)
+		t.Fatalf("p2.Write() error: %v", err)
 	}
 
 	// Both should produce encrypted data (different ciphertext due to random nonce)
 	// Verify both produced non-empty data
 	if len(data1) == 0 || len(data2) == 0 {
-		t.Error("Store() should produce non-empty encrypted data")
+		t.Error("Write() should produce non-empty encrypted data")
 	}
 
 	// Both should be loadable by either processor
-	loaded1, err := p1.Load(t.Context(), data2)
+	loaded1, err := p1.Read(t.Context(), data2)
 	if err != nil {
-		t.Fatalf("p1.Load() error: %v", err)
+		t.Fatalf("p1.Read() error: %v", err)
 	}
 	if loaded1.Email != user.Email {
-		t.Errorf("p1.Load() Email = %q, want %q", loaded1.Email, user.Email)
+		t.Errorf("p1.Read() Email = %q, want %q", loaded1.Email, user.Email)
 	}
 }
 
@@ -148,12 +151,12 @@ func TestPlansCache_DifferentTypes(t *testing.T) {
 	cereal.ResetPlansCache()
 
 	// Create processors for different types
-	p1, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p1, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor[CacheTestUser]() error: %v", err)
 	}
 
-	p2, err := cereal.NewProcessor[CacheTestUser2](&registryTestCodec{})
+	p2, err := cereal.NewProcessor[CacheTestUser2]()
 	if err != nil {
 		t.Fatalf("NewProcessor[CacheTestUser2]() error: %v", err)
 	}
@@ -183,7 +186,7 @@ func TestPlansCache_ConcurrentAccess(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func() {
-			_, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+			_, err := cereal.NewProcessor[CacheTestUser]()
 			errs <- err
 		}()
 	}
@@ -206,7 +209,7 @@ func TestPlansCache_ConcurrentResetAndCreate(t *testing.T) {
 			errs <- nil
 		}()
 		go func() {
-			_, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+			_, err := cereal.NewProcessor[CacheTestUser]()
 			errs <- err
 		}()
 	}
@@ -240,19 +243,19 @@ func TestPlansCache_ConcurrentMultipleTypes(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func() {
-			_, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+			_, err := cereal.NewProcessor[CacheTestUser]()
 			errs <- err
 		}()
 		go func() {
-			_, err := cereal.NewProcessor[CacheTestUser2](&registryTestCodec{})
+			_, err := cereal.NewProcessor[CacheTestUser2]()
 			errs <- err
 		}()
 		go func() {
-			_, err := cereal.NewProcessor[CacheTestType3](&registryTestCodec{})
+			_, err := cereal.NewProcessor[CacheTestType3]()
 			errs <- err
 		}()
 		go func() {
-			_, err := cereal.NewProcessor[CacheTestType4](&registryTestCodec{})
+			_, err := cereal.NewProcessor[CacheTestType4]()
 			errs <- err
 		}()
 	}
@@ -268,7 +271,7 @@ func TestPlansCache_ConcurrentMultipleTypes(t *testing.T) {
 
 func TestPlansCache_StableAfterReset(t *testing.T) {
 	// Create a processor and use it
-	p1, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p1, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
@@ -277,53 +280,56 @@ func TestPlansCache_StableAfterReset(t *testing.T) {
 	enc, _ := cereal.AES(key)
 	p1.SetEncryptor(cereal.EncryptAES, enc)
 
+	p1.SetCodec(&registryTestCodec{})
+
 	user := &CacheTestUser{Name: "test", Email: "test@example.com"}
-	data1, err := p1.Store(t.Context(), user)
+	data1, err := p1.Write(t.Context(), user)
 	if err != nil {
-		t.Fatalf("p1.Store() before reset error: %v", err)
+		t.Fatalf("p1.Write() before reset error: %v", err)
 	}
 
 	// Reset cache while processor is active
 	cereal.ResetPlansCache()
 
 	// Original processor should still work (has its own plans)
-	data2, err := p1.Store(t.Context(), user)
+	data2, err := p1.Write(t.Context(), user)
 	if err != nil {
-		t.Fatalf("p1.Store() after reset error: %v", err)
+		t.Fatalf("p1.Write() after reset error: %v", err)
 	}
 
 	// New processor should work after reset
-	p2, err := cereal.NewProcessor[CacheTestUser](&registryTestCodec{})
+	p2, err := cereal.NewProcessor[CacheTestUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() after reset error: %v", err)
 	}
 	p2.SetEncryptor(cereal.EncryptAES, enc)
+	p2.SetCodec(&registryTestCodec{})
 
-	data3, err := p2.Store(t.Context(), user)
+	data3, err := p2.Write(t.Context(), user)
 	if err != nil {
-		t.Fatalf("p2.Store() after reset error: %v", err)
+		t.Fatalf("p2.Write() after reset error: %v", err)
 	}
 
 	// All should produce non-empty encrypted data
 	if len(data1) == 0 || len(data2) == 0 || len(data3) == 0 {
-		t.Error("Store() should produce non-empty data")
+		t.Error("Write() should produce non-empty data")
 	}
 
-	// Original processor's loads should still work
-	loaded1, err := p1.Load(t.Context(), data2)
+	// Original processor's reads should still work
+	loaded1, err := p1.Read(t.Context(), data2)
 	if err != nil {
-		t.Fatalf("p1.Load() after reset error: %v", err)
+		t.Fatalf("p1.Read() after reset error: %v", err)
 	}
 	if loaded1.Email != user.Email {
-		t.Errorf("p1.Load() Email = %q, want %q", loaded1.Email, user.Email)
+		t.Errorf("p1.Read() Email = %q, want %q", loaded1.Email, user.Email)
 	}
 
-	// New processor should be able to load data from old processor
-	loaded2, err := p2.Load(t.Context(), data1)
+	// New processor should be able to read data from old processor
+	loaded2, err := p2.Read(t.Context(), data1)
 	if err != nil {
-		t.Fatalf("p2.Load() error: %v", err)
+		t.Fatalf("p2.Read() error: %v", err)
 	}
 	if loaded2.Email != user.Email {
-		t.Errorf("p2.Load() Email = %q, want %q", loaded2.Email, user.Email)
+		t.Errorf("p2.Read() Email = %q, want %q", loaded2.Email, user.Email)
 	}
 }

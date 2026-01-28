@@ -37,22 +37,22 @@
 //
 //	func (u User) Clone() User { return u }
 //
-//	proc, _ := cereal.NewProcessor[User](
-//	    json.Codec(),
-//	    cereal.WithKey(cereal.EncryptAES, aesKey),
-//	)
+//	proc, _ := cereal.NewProcessor[User]()
+//	enc, _ := cereal.AES(aesKey)
+//	proc.SetEncryptor(cereal.EncryptAES, enc)
 //
-//	// Receive from API (hashes password)
-//	user, _ := proc.Receive(requestBody)
+//	// Primary API: T -> T boundary transforms
+//	received, _ := proc.Receive(ctx, user)   // hashes password
+//	stored, _ := proc.Store(ctx, received)    // encrypts email
+//	loaded, _ := proc.Load(ctx, stored)       // decrypts email
+//	sent, _ := proc.Send(ctx, loaded)         // masks email, redacts password
 //
-//	// Store to database (encrypts email)
-//	data, _ := proc.Store(user)
-//
-//	// Load from database (decrypts email)
-//	user, _ := proc.Load(dbRow)
-//
-//	// Send to API (masks email, redacts password)
-//	response, _ := proc.Send(user)
+//	// Secondary API: codec-aware (requires SetCodec)
+//	proc.SetCodec(json.New())
+//	user, _ := proc.Decode(ctx, requestBody)  // unmarshal + hash
+//	data, _ := proc.Write(ctx, &user)         // encrypt + marshal
+//	loaded, _ := proc.Read(ctx, data)         // unmarshal + decrypt
+//	response, _ := proc.Encode(ctx, &loaded)  // mask/redact + marshal
 //
 // # Capability Types
 //

@@ -95,7 +95,7 @@ func TestCodecError_Message(t *testing.T) {
 }
 
 func TestProcessor_Validate_TypedErrors(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
 
 	err := proc.Validate()
 	if err == nil {
@@ -120,7 +120,7 @@ func TestProcessor_Validate_TypedErrors(t *testing.T) {
 }
 
 func TestNewProcessor_InvalidTag_TypedError(t *testing.T) {
-	_, err := NewProcessor[BadTagUser](&testCodec{})
+	_, err := NewProcessor[BadTagUser]()
 	if err == nil {
 		t.Fatal("NewProcessor() should fail for invalid tag")
 	}

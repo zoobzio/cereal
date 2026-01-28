@@ -71,7 +71,7 @@ type RedactUser struct {
 func (u RedactUser) Clone() RedactUser { return u }
 
 func TestNewProcessor(t *testing.T) {
-	proc, err := NewProcessor[SimpleUser](&testCodec{})
+	proc, err := NewProcessor[SimpleUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
@@ -88,14 +88,14 @@ type BadTagUser struct {
 func (u BadTagUser) Clone() BadTagUser { return u }
 
 func TestNewProcessor_InvalidTag(t *testing.T) {
-	_, err := NewProcessor[BadTagUser](&testCodec{})
+	_, err := NewProcessor[BadTagUser]()
 	if err == nil {
 		t.Error("NewProcessor() should fail for invalid hash algorithm")
 	}
 }
 
 func TestProcessor_SetEncryptor(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
 
 	enc, err := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	if err != nil {
@@ -109,7 +109,7 @@ func TestProcessor_SetEncryptor(t *testing.T) {
 }
 
 func TestProcessor_SetHasher(t *testing.T) {
-	proc, _ := NewProcessor[HashUser](&testCodec{})
+	proc, _ := NewProcessor[HashUser]()
 
 	result := proc.SetHasher(HashSHA256, SHA256Hasher())
 	if result != proc {
@@ -118,7 +118,7 @@ func TestProcessor_SetHasher(t *testing.T) {
 }
 
 func TestProcessor_SetMasker(t *testing.T) {
-	proc, _ := NewProcessor[MaskUser](&testCodec{})
+	proc, _ := NewProcessor[MaskUser]()
 
 	result := proc.SetMasker(MaskEmail, EmailMasker())
 	if result != proc {
@@ -127,7 +127,7 @@ func TestProcessor_SetMasker(t *testing.T) {
 }
 
 func TestProcessor_Validate_MissingEncryptor(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
 
 	err := proc.Validate()
 	if err == nil {
@@ -139,7 +139,7 @@ func TestProcessor_Validate_MissingEncryptor(t *testing.T) {
 }
 
 func TestProcessor_Validate_Success(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -150,10 +150,11 @@ func TestProcessor_Validate_Success(t *testing.T) {
 }
 
 func TestProcessor_Receive_Hash(t *testing.T) {
-	proc, _ := NewProcessor[HashUser](&testCodec{})
+	proc, _ := NewProcessor[HashUser]()
+	proc.SetCodec(&testCodec{})
 
 	input := `{"id":"123","password":"secret"}`
-	user, err := proc.Receive(context.Background(), []byte(input))
+	user, err := proc.Decode(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Receive() error: %v", err)
 	}
@@ -168,12 +169,13 @@ func TestProcessor_Receive_Hash(t *testing.T) {
 }
 
 func TestProcessor_Store_Encrypt(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	user := &EncryptUser{ID: "123", Email: testEmail}
-	data, err := proc.Store(context.Background(), user)
+	data, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
@@ -194,16 +196,17 @@ func TestProcessor_Store_Encrypt(t *testing.T) {
 }
 
 func TestProcessor_Load_Decrypt(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	// First store to get encrypted data
 	original := &EncryptUser{ID: "123", Email: testEmail}
-	data, _ := proc.Store(context.Background(), original)
+	data, _ := proc.Write(context.Background(), original)
 
 	// Then load to decrypt
-	loaded, err := proc.Load(context.Background(), data)
+	loaded, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -214,14 +217,15 @@ func TestProcessor_Load_Decrypt(t *testing.T) {
 }
 
 func TestProcessor_Send_Mask(t *testing.T) {
-	proc, _ := NewProcessor[MaskUser](&testCodec{})
+	proc, _ := NewProcessor[MaskUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &MaskUser{
 		ID:    "123",
 		Email: testEmail,
 		SSN:   "123-45-6789",
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -245,14 +249,15 @@ func TestProcessor_Send_Mask(t *testing.T) {
 }
 
 func TestProcessor_Send_MaskInvalidFormat(t *testing.T) {
-	proc, _ := NewProcessor[MaskUser](&testCodec{})
+	proc, _ := NewProcessor[MaskUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &MaskUser{
 		ID:    "123",
 		Email: "not-an-email",   // Invalid email format
 		SSN:   "123-45-6789",    // Valid SSN
 	}
-	_, err := proc.Send(context.Background(), user)
+	_, err := proc.Encode(context.Background(), user)
 	if err == nil {
 		t.Fatal("Send() should fail for invalid email format")
 	}
@@ -262,14 +267,15 @@ func TestProcessor_Send_MaskInvalidFormat(t *testing.T) {
 }
 
 func TestProcessor_Send_Redact(t *testing.T) {
-	proc, _ := NewProcessor[RedactUser](&testCodec{})
+	proc, _ := NewProcessor[RedactUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &RedactUser{
 		ID:       "123",
 		Password: "secret",
 		Token:    "abc123",
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -288,9 +294,10 @@ func TestProcessor_Send_Redact(t *testing.T) {
 }
 
 func TestProcessor_Store_Nil(t *testing.T) {
-	proc, _ := NewProcessor[SimpleUser](&testCodec{})
+	proc, _ := NewProcessor[SimpleUser]()
+	proc.SetCodec(&testCodec{})
 
-	data, err := proc.Store(context.Background(), nil)
+	data, err := proc.Write(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Store(nil) error: %v", err)
 	}
@@ -300,9 +307,10 @@ func TestProcessor_Store_Nil(t *testing.T) {
 }
 
 func TestProcessor_Send_Nil(t *testing.T) {
-	proc, _ := NewProcessor[SimpleUser](&testCodec{})
+	proc, _ := NewProcessor[SimpleUser]()
+	proc.SetCodec(&testCodec{})
 
-	data, err := proc.Send(context.Background(), nil)
+	data, err := proc.Encode(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Send(nil) error: %v", err)
 	}
@@ -325,10 +333,11 @@ func (u *HashableUser) Hash(_ map[HashAlgo]Hasher) error {
 }
 
 func TestProcessor_Receive_InterfaceOverride(t *testing.T) {
-	proc, _ := NewProcessor[HashableUser](&testCodec{})
+	proc, _ := NewProcessor[HashableUser]()
+	proc.SetCodec(&testCodec{})
 
 	input := `{"id":"123","password":"secret"}`
-	user, err := proc.Receive(context.Background(), []byte(input))
+	user, err := proc.Decode(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Receive() error: %v", err)
 	}
@@ -352,10 +361,11 @@ func (u *EncryptableUser) Encrypt(_ map[EncryptAlgo]Encryptor) error {
 }
 
 func TestProcessor_Store_InterfaceOverride(t *testing.T) {
-	proc, _ := NewProcessor[EncryptableUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptableUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &EncryptableUser{ID: "123", Email: testEmail}
-	data, err := proc.Store(context.Background(), user)
+	data, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
@@ -384,10 +394,11 @@ func (u *DecryptableUser) Decrypt(_ map[EncryptAlgo]Encryptor) error {
 }
 
 func TestProcessor_Load_InterfaceOverride(t *testing.T) {
-	proc, _ := NewProcessor[DecryptableUser](&testCodec{})
+	proc, _ := NewProcessor[DecryptableUser]()
+	proc.SetCodec(&testCodec{})
 
 	input := `{"id":"123","email":"encrypted-data"}`
-	user, err := proc.Load(context.Background(), []byte(input))
+	user, err := proc.Read(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -411,10 +422,11 @@ func (u *MaskableUser) Mask(_ map[MaskType]Masker) error {
 }
 
 func TestProcessor_Send_MaskInterfaceOverride(t *testing.T) {
-	proc, _ := NewProcessor[MaskableUser](&testCodec{})
+	proc, _ := NewProcessor[MaskableUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &MaskableUser{ID: "123", Email: testEmail}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -443,10 +455,11 @@ func (u *RedactableUser) Redact() error {
 }
 
 func TestProcessor_Send_RedactInterfaceOverride(t *testing.T) {
-	proc, _ := NewProcessor[RedactableUser](&testCodec{})
+	proc, _ := NewProcessor[RedactableUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &RedactableUser{ID: "123", Password: "secret"}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -480,13 +493,14 @@ func (u NestedUser) Clone() NestedUser {
 }
 
 func TestProcessor_Send_NestedStruct(t *testing.T) {
-	proc, _ := NewProcessor[NestedUser](&testCodec{})
+	proc, _ := NewProcessor[NestedUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &NestedUser{
 		ID:      "123",
 		Address: Address{Street: "123 Main St", City: "Boston"},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -522,13 +536,14 @@ func (u PointerNestedUser) Clone() PointerNestedUser {
 }
 
 func TestProcessor_Send_PointerNestedStruct(t *testing.T) {
-	proc, _ := NewProcessor[PointerNestedUser](&testCodec{})
+	proc, _ := NewProcessor[PointerNestedUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &PointerNestedUser{
 		ID:      "123",
 		Address: &Address{Street: "123 Main St", City: "Boston"},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -544,13 +559,14 @@ func TestProcessor_Send_PointerNestedStruct(t *testing.T) {
 }
 
 func TestProcessor_Send_PointerNestedStruct_Nil(t *testing.T) {
-	proc, _ := NewProcessor[PointerNestedUser](&testCodec{})
+	proc, _ := NewProcessor[PointerNestedUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &PointerNestedUser{
 		ID:      "123",
 		Address: nil,
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -598,7 +614,8 @@ func (u SliceUser) Clone() SliceUser {
 }
 
 func TestProcessor_Send_SliceMask(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -606,7 +623,7 @@ func TestProcessor_Send_SliceMask(t *testing.T) {
 		ID:     "123",
 		Emails: []string{"alice@example.com", "bob@example.com"},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -624,7 +641,8 @@ func TestProcessor_Send_SliceMask(t *testing.T) {
 }
 
 func TestProcessor_Send_SliceRedact(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -632,7 +650,7 @@ func TestProcessor_Send_SliceRedact(t *testing.T) {
 		ID:      "123",
 		Secrets: []string{"secret1", "secret2"},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -650,12 +668,13 @@ func TestProcessor_Send_SliceRedact(t *testing.T) {
 }
 
 func TestProcessor_Receive_SliceHash(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	input := `{"id":"123","tokens":["token1","token2"]}`
-	user, err := proc.Receive(context.Background(), []byte(input))
+	user, err := proc.Decode(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Receive() error: %v", err)
 	}
@@ -671,7 +690,8 @@ func TestProcessor_Receive_SliceHash(t *testing.T) {
 }
 
 func TestProcessor_StoreLoad_SliceEncrypt(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -679,12 +699,12 @@ func TestProcessor_StoreLoad_SliceEncrypt(t *testing.T) {
 		ID:   "123",
 		SSNs: []string{"123-45-6789", "987-65-4321"},
 	}
-	data, err := proc.Store(context.Background(), original)
+	data, err := proc.Write(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
-	loaded, err := proc.Load(context.Background(), data)
+	loaded, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -737,7 +757,8 @@ func (u MapUser) Clone() MapUser {
 }
 
 func TestProcessor_Send_MapMask(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -745,7 +766,7 @@ func TestProcessor_Send_MapMask(t *testing.T) {
 		ID:     "123",
 		Emails: map[string]string{"work": "alice@example.com", "home": "bob@example.com"},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -763,7 +784,8 @@ func TestProcessor_Send_MapMask(t *testing.T) {
 }
 
 func TestProcessor_Send_MapRedact(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -771,7 +793,7 @@ func TestProcessor_Send_MapRedact(t *testing.T) {
 		ID:      "123",
 		Secrets: map[string]string{"api": "secret1", "db": "secret2"},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -789,12 +811,13 @@ func TestProcessor_Send_MapRedact(t *testing.T) {
 }
 
 func TestProcessor_Receive_MapHash(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	input := `{"id":"123","tokens":{"a":"token1","b":"token2"}}`
-	user, err := proc.Receive(context.Background(), []byte(input))
+	user, err := proc.Decode(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Receive() error: %v", err)
 	}
@@ -810,7 +833,8 @@ func TestProcessor_Receive_MapHash(t *testing.T) {
 }
 
 func TestProcessor_StoreLoad_MapEncrypt(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -818,12 +842,12 @@ func TestProcessor_StoreLoad_MapEncrypt(t *testing.T) {
 		ID:   "123",
 		SSNs: map[string]string{"primary": "123-45-6789", "spouse": "987-65-4321"},
 	}
-	data, err := proc.Store(context.Background(), original)
+	data, err := proc.Write(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
-	loaded, err := proc.Load(context.Background(), data)
+	loaded, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -838,7 +862,8 @@ func TestProcessor_StoreLoad_MapEncrypt(t *testing.T) {
 // --- Clone validation tests ---
 
 func TestProcessor_Send_SliceCloneValidation(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -852,7 +877,7 @@ func TestProcessor_Send_SliceCloneValidation(t *testing.T) {
 	emailsCopy := make([]string, len(originalEmails))
 	copy(emailsCopy, originalEmails)
 
-	_, err := proc.Send(context.Background(), user)
+	_, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -866,7 +891,8 @@ func TestProcessor_Send_SliceCloneValidation(t *testing.T) {
 }
 
 func TestProcessor_Send_MapCloneValidation(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -882,7 +908,7 @@ func TestProcessor_Send_MapCloneValidation(t *testing.T) {
 		emailsCopy[k] = v
 	}
 
-	_, err := proc.Send(context.Background(), user)
+	_, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -896,7 +922,8 @@ func TestProcessor_Send_MapCloneValidation(t *testing.T) {
 }
 
 func TestProcessor_Store_SliceCloneValidation(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -910,7 +937,7 @@ func TestProcessor_Store_SliceCloneValidation(t *testing.T) {
 	ssnsCopy := make([]string, len(originalSSNs))
 	copy(ssnsCopy, originalSSNs)
 
-	_, err := proc.Store(context.Background(), user)
+	_, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
@@ -924,7 +951,8 @@ func TestProcessor_Store_SliceCloneValidation(t *testing.T) {
 }
 
 func TestProcessor_Store_MapCloneValidation(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -940,7 +968,7 @@ func TestProcessor_Store_MapCloneValidation(t *testing.T) {
 		ssnsCopy[k] = v
 	}
 
-	_, err := proc.Store(context.Background(), user)
+	_, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
@@ -981,7 +1009,8 @@ func (u BytesUser) Clone() BytesUser {
 }
 
 func TestProcessor_StoreLoad_BytesEncrypt(t *testing.T) {
-	proc, _ := NewProcessor[BytesUser](&testCodec{})
+	proc, _ := NewProcessor[BytesUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -989,12 +1018,12 @@ func TestProcessor_StoreLoad_BytesEncrypt(t *testing.T) {
 		ID:     "123",
 		Secret: []byte("my-secret-bytes"),
 	}
-	data, err := proc.Store(context.Background(), original)
+	data, err := proc.Write(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
-	loaded, err := proc.Load(context.Background(), data)
+	loaded, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1005,12 +1034,13 @@ func TestProcessor_StoreLoad_BytesEncrypt(t *testing.T) {
 }
 
 func TestProcessor_Receive_BytesHash(t *testing.T) {
-	proc, _ := NewProcessor[BytesUser](&testCodec{})
+	proc, _ := NewProcessor[BytesUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	input := `{"id":"123","token":"dG9rZW4xMjM="}`  // base64 of "token123"
-	user, err := proc.Receive(context.Background(), []byte(input))
+	user, err := proc.Decode(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Receive() error: %v", err)
 	}
@@ -1022,7 +1052,8 @@ func TestProcessor_Receive_BytesHash(t *testing.T) {
 }
 
 func TestProcessor_Send_BytesRedact(t *testing.T) {
-	proc, _ := NewProcessor[BytesUser](&testCodec{})
+	proc, _ := NewProcessor[BytesUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -1030,7 +1061,7 @@ func TestProcessor_Send_BytesRedact(t *testing.T) {
 		ID:     "123",
 		Redact: []byte("sensitive-data"),
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -1055,7 +1086,7 @@ type BadEncryptTagUser struct {
 func (u BadEncryptTagUser) Clone() BadEncryptTagUser { return u }
 
 func TestNewProcessor_InvalidEncryptTag(t *testing.T) {
-	_, err := NewProcessor[BadEncryptTagUser](&testCodec{})
+	_, err := NewProcessor[BadEncryptTagUser]()
 	if err == nil {
 		t.Error("NewProcessor() should fail for invalid encrypt algorithm")
 	}
@@ -1069,7 +1100,7 @@ type BadDecryptTagUser struct {
 func (u BadDecryptTagUser) Clone() BadDecryptTagUser { return u }
 
 func TestNewProcessor_InvalidDecryptTag(t *testing.T) {
-	_, err := NewProcessor[BadDecryptTagUser](&testCodec{})
+	_, err := NewProcessor[BadDecryptTagUser]()
 	if err == nil {
 		t.Error("NewProcessor() should fail for invalid decrypt algorithm")
 	}
@@ -1083,7 +1114,7 @@ type BadMaskTagUser struct {
 func (u BadMaskTagUser) Clone() BadMaskTagUser { return u }
 
 func TestNewProcessor_InvalidMaskTag(t *testing.T) {
-	_, err := NewProcessor[BadMaskTagUser](&testCodec{})
+	_, err := NewProcessor[BadMaskTagUser]()
 	if err == nil {
 		t.Error("NewProcessor() should fail for invalid mask type")
 	}
@@ -1099,7 +1130,7 @@ type HashOnlyUser struct {
 func (u HashOnlyUser) Clone() HashOnlyUser { return u }
 
 func TestProcessor_Validate_HashersBuiltin(t *testing.T) {
-	proc, _ := NewProcessor[HashOnlyUser](&testCodec{})
+	proc, _ := NewProcessor[HashOnlyUser]()
 
 	// Hashers are builtin, should validate without error
 	err := proc.Validate()
@@ -1116,7 +1147,7 @@ type MaskOnlyUser struct {
 func (u MaskOnlyUser) Clone() MaskOnlyUser { return u }
 
 func TestProcessor_Validate_MaskersBuiltin(t *testing.T) {
-	proc, _ := NewProcessor[MaskOnlyUser](&testCodec{})
+	proc, _ := NewProcessor[MaskOnlyUser]()
 
 	// Maskers are builtin, should validate without error
 	err := proc.Validate()
@@ -1128,18 +1159,20 @@ func TestProcessor_Validate_MaskersBuiltin(t *testing.T) {
 // --- Unmarshal error tests ---
 
 func TestProcessor_Receive_UnmarshalError(t *testing.T) {
-	proc, _ := NewProcessor[SimpleUser](&testCodec{})
+	proc, _ := NewProcessor[SimpleUser]()
+	proc.SetCodec(&testCodec{})
 
-	_, err := proc.Receive(context.Background(), []byte("invalid json"))
+	_, err := proc.Decode(context.Background(), []byte("invalid json"))
 	if err == nil {
 		t.Error("Receive() should fail on invalid JSON")
 	}
 }
 
 func TestProcessor_Load_UnmarshalError(t *testing.T) {
-	proc, _ := NewProcessor[SimpleUser](&testCodec{})
+	proc, _ := NewProcessor[SimpleUser]()
+	proc.SetCodec(&testCodec{})
 
-	_, err := proc.Load(context.Background(), []byte("invalid json"))
+	_, err := proc.Read(context.Background(), []byte("invalid json"))
 	if err == nil {
 		t.Error("Load() should fail on invalid JSON")
 	}
@@ -1148,13 +1181,14 @@ func TestProcessor_Load_UnmarshalError(t *testing.T) {
 // --- Error path tests ---
 
 func TestProcessor_Load_DecryptError_InvalidBase64(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	// Email field contains invalid base64
 	input := `{"id":"123","email":"not-valid-base64!!!"}`
-	_, err := proc.Load(context.Background(), []byte(input))
+	_, err := proc.Read(context.Background(), []byte(input))
 	if err == nil {
 		t.Error("Load() should fail on invalid base64")
 	}
@@ -1164,13 +1198,14 @@ func TestProcessor_Load_DecryptError_InvalidBase64(t *testing.T) {
 }
 
 func TestProcessor_Load_DecryptError_CorruptedCiphertext(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	// Valid base64 but not valid AES ciphertext
 	input := `{"id":"123","email":"YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="}`
-	_, err := proc.Load(context.Background(), []byte(input))
+	_, err := proc.Read(context.Background(), []byte(input))
 	if err == nil {
 		t.Error("Load() should fail on corrupted ciphertext")
 	}
@@ -1182,10 +1217,11 @@ func TestProcessor_Load_DecryptError_CorruptedCiphertext(t *testing.T) {
 func TestProcessor_Store_MarshalError(t *testing.T) {
 	// Create a codec that fails on marshal
 	failCodec := &failingCodec{failMarshal: true}
-	proc, _ := NewProcessor[SimpleUser](failCodec)
+	proc, _ := NewProcessor[SimpleUser]()
+	proc.SetCodec(failCodec)
 
 	user := &SimpleUser{ID: "123", Name: "test"}
-	_, err := proc.Store(context.Background(), user)
+	_, err := proc.Write(context.Background(), user)
 	if err == nil {
 		t.Error("Store() should fail when marshal fails")
 	}
@@ -1193,10 +1229,11 @@ func TestProcessor_Store_MarshalError(t *testing.T) {
 
 func TestProcessor_Send_MarshalError(t *testing.T) {
 	failCodec := &failingCodec{failMarshal: true}
-	proc, _ := NewProcessor[SimpleUser](failCodec)
+	proc, _ := NewProcessor[SimpleUser]()
+	proc.SetCodec(failCodec)
 
 	user := &SimpleUser{ID: "123", Name: "test"}
-	_, err := proc.Send(context.Background(), user)
+	_, err := proc.Encode(context.Background(), user)
 	if err == nil {
 		t.Error("Send() should fail when marshal fails")
 	}
@@ -1226,7 +1263,7 @@ func (c *failingCodec) Unmarshal(data []byte, v any) error {
 // --- Validation error tests ---
 
 func TestProcessor_Validate_CalledOnce(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
 
 	// First validate should fail (no encryptor)
 	err1 := proc.Validate()
@@ -1246,18 +1283,19 @@ func TestProcessor_Validate_CalledOnce(t *testing.T) {
 }
 
 func TestProcessor_Operations_FailWithoutValidation(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
+	proc.SetCodec(&testCodec{})
 	// Don't set encryptor - validation will fail
 
 	ctx := context.Background()
 
 	// All operations should fail validation
-	_, err := proc.Store(ctx, &EncryptUser{ID: "123", Email: "test@example.com"})
+	_, err := proc.Write(ctx, &EncryptUser{ID: "123", Email: "test@example.com"})
 	if err == nil {
 		t.Error("Store() should fail validation")
 	}
 
-	_, err = proc.Load(ctx, []byte(`{"id":"123","email":"encrypted"}`))
+	_, err = proc.Read(ctx, []byte(`{"id":"123","email":"encrypted"}`))
 	if err == nil {
 		t.Error("Load() should fail validation")
 	}
@@ -1266,17 +1304,18 @@ func TestProcessor_Operations_FailWithoutValidation(t *testing.T) {
 // --- Empty/nil handling tests ---
 
 func TestProcessor_Store_EmptyFields(t *testing.T) {
-	proc, _ := NewProcessor[EncryptUser](&testCodec{})
+	proc, _ := NewProcessor[EncryptUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	user := &EncryptUser{ID: "123", Email: ""} // Empty email
-	data, err := proc.Store(context.Background(), user)
+	data, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
-	loaded, err := proc.Load(context.Background(), data)
+	loaded, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1286,10 +1325,11 @@ func TestProcessor_Store_EmptyFields(t *testing.T) {
 }
 
 func TestProcessor_Send_EmptyFields(t *testing.T) {
-	proc, _ := NewProcessor[MaskUser](&testCodec{})
+	proc, _ := NewProcessor[MaskUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &MaskUser{ID: "123", Email: "", SSN: ""} // Empty fields - invalid for masking
-	_, err := proc.Send(context.Background(), user)
+	_, err := proc.Encode(context.Background(), user)
 	if err == nil {
 		t.Fatal("Send() should fail for empty masked fields")
 	}
@@ -1299,10 +1339,11 @@ func TestProcessor_Send_EmptyFields(t *testing.T) {
 }
 
 func TestProcessor_Receive_EmptyFields(t *testing.T) {
-	proc, _ := NewProcessor[HashUser](&testCodec{})
+	proc, _ := NewProcessor[HashUser]()
+	proc.SetCodec(&testCodec{})
 
 	input := `{"id":"123","password":""}` // Empty password
-	user, err := proc.Receive(context.Background(), []byte(input))
+	user, err := proc.Decode(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Receive() error: %v", err)
 	}
@@ -1329,13 +1370,14 @@ func (u SliceDecryptUser) Clone() SliceDecryptUser {
 }
 
 func TestProcessor_Load_SliceDecryptError(t *testing.T) {
-	proc, _ := NewProcessor[SliceDecryptUser](&testCodec{})
+	proc, _ := NewProcessor[SliceDecryptUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	// Slice with invalid base64
 	input := `{"id":"123","emails":["invalid-base64!!!"]}`
-	_, err := proc.Load(context.Background(), []byte(input))
+	_, err := proc.Read(context.Background(), []byte(input))
 	if err == nil {
 		t.Error("Load() should fail on invalid base64 in slice")
 	}
@@ -1358,13 +1400,14 @@ func (u MapDecryptUser) Clone() MapDecryptUser {
 }
 
 func TestProcessor_Load_MapDecryptError(t *testing.T) {
-	proc, _ := NewProcessor[MapDecryptUser](&testCodec{})
+	proc, _ := NewProcessor[MapDecryptUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
 	// Map with invalid base64
 	input := `{"id":"123","emails":{"work":"invalid-base64!!!"}}`
-	_, err := proc.Load(context.Background(), []byte(input))
+	_, err := proc.Read(context.Background(), []byte(input))
 	if err == nil {
 		t.Error("Load() should fail on invalid base64 in map")
 	}
@@ -1373,21 +1416,22 @@ func TestProcessor_Load_MapDecryptError(t *testing.T) {
 // --- Context cancellation tests ---
 
 func TestProcessor_Operations_WithCancelledContext(t *testing.T) {
-	proc, _ := NewProcessor[SimpleUser](&testCodec{})
+	proc, _ := NewProcessor[SimpleUser]()
+	proc.SetCodec(&testCodec{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
 	// Operations should still work (context is for signaling only, not enforced)
 	user := &SimpleUser{ID: "123", Name: "test"}
-	_, err := proc.Store(ctx, user)
+	_, err := proc.Write(ctx, user)
 	// Context cancellation isn't checked by the processor itself
 	// This just verifies no panic occurs
 	if err != nil {
 		t.Logf("Store with cancelled context: %v", err)
 	}
 
-	_, err = proc.Send(ctx, user)
+	_, err = proc.Encode(ctx, user)
 	if err != nil {
 		t.Logf("Send with cancelled context: %v", err)
 	}
@@ -1423,7 +1467,8 @@ func (u DeeplyNestedUser) Clone() DeeplyNestedUser {
 }
 
 func TestProcessor_Send_DeeplyNestedStruct(t *testing.T) {
-	proc, _ := NewProcessor[DeeplyNestedUser](&testCodec{})
+	proc, _ := NewProcessor[DeeplyNestedUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &DeeplyNestedUser{
 		ID: "123",
@@ -1437,7 +1482,7 @@ func TestProcessor_Send_DeeplyNestedStruct(t *testing.T) {
 			},
 		},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -1489,7 +1534,8 @@ func (u DeeplyNestedPointerUser) Clone() DeeplyNestedPointerUser {
 }
 
 func TestProcessor_Send_DeeplyNestedPointer(t *testing.T) {
-	proc, _ := NewProcessor[DeeplyNestedPointerUser](&testCodec{})
+	proc, _ := NewProcessor[DeeplyNestedPointerUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &DeeplyNestedPointerUser{
 		ID: "123",
@@ -1500,7 +1546,7 @@ func TestProcessor_Send_DeeplyNestedPointer(t *testing.T) {
 			},
 		},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -1519,7 +1565,8 @@ func TestProcessor_Send_DeeplyNestedPointer(t *testing.T) {
 }
 
 func TestProcessor_Send_DeeplyNestedPointer_NilIntermediate(t *testing.T) {
-	proc, _ := NewProcessor[DeeplyNestedPointerUser](&testCodec{})
+	proc, _ := NewProcessor[DeeplyNestedPointerUser]()
+	proc.SetCodec(&testCodec{})
 
 	// First level pointer is set, but second level is nil
 	user := &DeeplyNestedPointerUser{
@@ -1529,7 +1576,7 @@ func TestProcessor_Send_DeeplyNestedPointer_NilIntermediate(t *testing.T) {
 			Nested: nil,
 		},
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -1550,7 +1597,8 @@ func TestProcessor_Send_DeeplyNestedPointer_NilIntermediate(t *testing.T) {
 // --- Empty collection tests ---
 
 func TestProcessor_Send_EmptySlice(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -1558,7 +1606,7 @@ func TestProcessor_Send_EmptySlice(t *testing.T) {
 		ID:     "123",
 		Emails: []string{}, // Empty slice
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -1574,7 +1622,8 @@ func TestProcessor_Send_EmptySlice(t *testing.T) {
 }
 
 func TestProcessor_Send_EmptyMap(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -1582,7 +1631,7 @@ func TestProcessor_Send_EmptyMap(t *testing.T) {
 		ID:     "123",
 		Emails: map[string]string{}, // Empty map
 	}
-	data, err := proc.Send(context.Background(), user)
+	data, err := proc.Encode(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
@@ -1598,7 +1647,8 @@ func TestProcessor_Send_EmptyMap(t *testing.T) {
 }
 
 func TestProcessor_Store_NilSlice(t *testing.T) {
-	proc, _ := NewProcessor[SliceUser](&testCodec{})
+	proc, _ := NewProcessor[SliceUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -1607,12 +1657,12 @@ func TestProcessor_Store_NilSlice(t *testing.T) {
 		Emails: nil, // Nil slice
 		SSNs:   nil,
 	}
-	data, err := proc.Store(context.Background(), user)
+	data, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
-	loaded, err := proc.Load(context.Background(), data)
+	loaded, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1623,7 +1673,8 @@ func TestProcessor_Store_NilSlice(t *testing.T) {
 }
 
 func TestProcessor_Store_NilMap(t *testing.T) {
-	proc, _ := NewProcessor[MapUser](&testCodec{})
+	proc, _ := NewProcessor[MapUser]()
+	proc.SetCodec(&testCodec{})
 	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
 	proc.SetEncryptor(EncryptAES, enc)
 
@@ -1632,12 +1683,12 @@ func TestProcessor_Store_NilMap(t *testing.T) {
 		Emails: nil, // Nil map
 		SSNs:   nil,
 	}
-	data, err := proc.Store(context.Background(), user)
+	data, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
 
-	loaded, err := proc.Load(context.Background(), data)
+	loaded, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1659,7 +1710,7 @@ type MultiMissingUser struct {
 func (u MultiMissingUser) Clone() MultiMissingUser { return u }
 
 func TestProcessor_Validate_MultipleErrors(t *testing.T) {
-	proc, _ := NewProcessor[MultiMissingUser](&testCodec{})
+	proc, _ := NewProcessor[MultiMissingUser]()
 
 	// Don't configure any encryptors - both aes and rsa are missing
 	err := proc.Validate()
@@ -1688,10 +1739,11 @@ func (u *ErrorHashableUser) Hash(_ map[HashAlgo]Hasher) error {
 }
 
 func TestProcessor_Receive_HashableError(t *testing.T) {
-	proc, _ := NewProcessor[ErrorHashableUser](&testCodec{})
+	proc, _ := NewProcessor[ErrorHashableUser]()
+	proc.SetCodec(&testCodec{})
 
 	input := `{"id":"123","password":"secret"}`
-	_, err := proc.Receive(context.Background(), []byte(input))
+	_, err := proc.Decode(context.Background(), []byte(input))
 	if err == nil {
 		t.Fatal("Receive() should fail when Hashable.Hash returns error")
 	}
@@ -1713,10 +1765,11 @@ func (u *ErrorEncryptableUser) Encrypt(_ map[EncryptAlgo]Encryptor) error {
 }
 
 func TestProcessor_Store_EncryptableError(t *testing.T) {
-	proc, _ := NewProcessor[ErrorEncryptableUser](&testCodec{})
+	proc, _ := NewProcessor[ErrorEncryptableUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &ErrorEncryptableUser{ID: "123", Email: "test@example.com"}
-	_, err := proc.Store(context.Background(), user)
+	_, err := proc.Write(context.Background(), user)
 	if err == nil {
 		t.Fatal("Store() should fail when Encryptable.Encrypt returns error")
 	}
@@ -1738,10 +1791,11 @@ func (u *ErrorDecryptableUser) Decrypt(_ map[EncryptAlgo]Encryptor) error {
 }
 
 func TestProcessor_Load_DecryptableError(t *testing.T) {
-	proc, _ := NewProcessor[ErrorDecryptableUser](&testCodec{})
+	proc, _ := NewProcessor[ErrorDecryptableUser]()
+	proc.SetCodec(&testCodec{})
 
 	input := `{"id":"123","email":"encrypted-data"}`
-	_, err := proc.Load(context.Background(), []byte(input))
+	_, err := proc.Read(context.Background(), []byte(input))
 	if err == nil {
 		t.Fatal("Load() should fail when Decryptable.Decrypt returns error")
 	}
@@ -1763,10 +1817,11 @@ func (u *ErrorMaskableUser) Mask(_ map[MaskType]Masker) error {
 }
 
 func TestProcessor_Send_MaskableError(t *testing.T) {
-	proc, _ := NewProcessor[ErrorMaskableUser](&testCodec{})
+	proc, _ := NewProcessor[ErrorMaskableUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &ErrorMaskableUser{ID: "123", Email: "test@example.com"}
-	_, err := proc.Send(context.Background(), user)
+	_, err := proc.Encode(context.Background(), user)
 	if err == nil {
 		t.Fatal("Send() should fail when Maskable.Mask returns error")
 	}
@@ -1788,15 +1843,207 @@ func (u *ErrorRedactableUser) Redact() error {
 }
 
 func TestProcessor_Send_RedactableError(t *testing.T) {
-	proc, _ := NewProcessor[ErrorRedactableUser](&testCodec{})
+	proc, _ := NewProcessor[ErrorRedactableUser]()
+	proc.SetCodec(&testCodec{})
 
 	user := &ErrorRedactableUser{ID: "123", Password: "secret"}
-	_, err := proc.Send(context.Background(), user)
+	_, err := proc.Encode(context.Background(), user)
 	if err == nil {
 		t.Fatal("Send() should fail when Redactable.Redact returns error")
 	}
 	if !strings.Contains(err.Error(), "redact override error") {
 		t.Errorf("Send() error = %q, want 'redact override error'", err.Error())
+	}
+}
+
+// --- T -> T primary API tests ---
+
+func TestProcessor_Receive_T2T(t *testing.T) {
+	proc, _ := NewProcessor[HashUser]()
+
+	user := HashUser{ID: "123", Password: "secret"}
+	result, err := proc.Receive(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Receive() error: %v", err)
+	}
+
+	// Original should not be modified
+	if user.Password != "secret" {
+		t.Error("Receive() should not modify original")
+	}
+	// Result should be hashed
+	if result.Password == "secret" {
+		t.Error("Receive() should hash password")
+	}
+	if len(result.Password) != 64 {
+		t.Errorf("Receive() password length = %d, want 64", len(result.Password))
+	}
+}
+
+func TestProcessor_Store_T2T(t *testing.T) {
+	proc, _ := NewProcessor[EncryptUser]()
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	user := EncryptUser{ID: "123", Email: testEmail}
+	result, err := proc.Store(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	// Original should not be modified
+	if user.Email != testEmail {
+		t.Error("Store() should not modify original")
+	}
+	// Result should be encrypted
+	if result.Email == testEmail {
+		t.Error("Store() should encrypt email")
+	}
+}
+
+func TestProcessor_Load_T2T(t *testing.T) {
+	proc, _ := NewProcessor[EncryptUser]()
+	enc, _ := AES([]byte("32-byte-key-for-aes-256-encrypt!"))
+	proc.SetEncryptor(EncryptAES, enc)
+
+	// Store first to get encrypted value
+	original := EncryptUser{ID: "123", Email: testEmail}
+	stored, _ := proc.Store(context.Background(), original)
+
+	// Load to decrypt
+	loaded, err := proc.Load(context.Background(), stored)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if loaded.Email != testEmail {
+		t.Errorf("Load() email = %q, want %q", loaded.Email, testEmail)
+	}
+}
+
+func TestProcessor_Send_T2T(t *testing.T) {
+	proc, _ := NewProcessor[MaskUser]()
+
+	user := MaskUser{ID: "123", Email: testEmail, SSN: "123-45-6789"}
+	result, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	// Original should not be modified
+	if user.Email != testEmail {
+		t.Error("Send() should not modify original")
+	}
+	// Result should be masked
+	if result.Email == testEmail {
+		t.Error("Send() should mask email")
+	}
+	if result.SSN == "123-45-6789" {
+		t.Error("Send() should mask SSN")
+	}
+}
+
+func TestProcessor_Send_T2T_Redact(t *testing.T) {
+	proc, _ := NewProcessor[RedactUser]()
+
+	user := RedactUser{ID: "123", Password: "secret", Token: "abc123"}
+	result, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+	if result.Password != testRedactedValue {
+		t.Errorf("Send() password = %q, want %q", result.Password, testRedactedValue)
+	}
+	if result.Token != "[REDACTED]" {
+		t.Errorf("Send() token = %q, want %q", result.Token, "[REDACTED]")
+	}
+}
+
+// --- Missing codec tests ---
+
+func TestProcessor_Decode_MissingCodec(t *testing.T) {
+	proc, _ := NewProcessor[SimpleUser]()
+
+	_, err := proc.Decode(context.Background(), []byte(`{"id":"1"}`))
+	if err == nil {
+		t.Fatal("Decode() should fail without codec")
+	}
+	if !errors.Is(err, ErrMissingCodec) {
+		t.Errorf("Decode() error = %v, want ErrMissingCodec", err)
+	}
+}
+
+func TestProcessor_Read_MissingCodec(t *testing.T) {
+	proc, _ := NewProcessor[SimpleUser]()
+
+	_, err := proc.Read(context.Background(), []byte(`{"id":"1"}`))
+	if err == nil {
+		t.Fatal("Read() should fail without codec")
+	}
+	if !errors.Is(err, ErrMissingCodec) {
+		t.Errorf("Read() error = %v, want ErrMissingCodec", err)
+	}
+}
+
+func TestProcessor_Write_MissingCodec(t *testing.T) {
+	proc, _ := NewProcessor[SimpleUser]()
+
+	user := &SimpleUser{ID: "123", Name: "test"}
+	_, err := proc.Write(context.Background(), user)
+	if err == nil {
+		t.Fatal("Write() should fail without codec")
+	}
+	if !errors.Is(err, ErrMissingCodec) {
+		t.Errorf("Write() error = %v, want ErrMissingCodec", err)
+	}
+}
+
+func TestProcessor_Encode_MissingCodec(t *testing.T) {
+	proc, _ := NewProcessor[SimpleUser]()
+
+	user := &SimpleUser{ID: "123", Name: "test"}
+	_, err := proc.Encode(context.Background(), user)
+	if err == nil {
+		t.Fatal("Encode() should fail without codec")
+	}
+	if !errors.Is(err, ErrMissingCodec) {
+		t.Errorf("Encode() error = %v, want ErrMissingCodec", err)
+	}
+}
+
+// --- SetCodec test ---
+
+func TestProcessor_SetCodec(t *testing.T) {
+	proc, _ := NewProcessor[SimpleUser]()
+
+	result := proc.SetCodec(&testCodec{})
+	if result != proc {
+		t.Error("SetCodec() should return processor for chaining")
+	}
+
+	// Should now work with codec methods
+	user := &SimpleUser{ID: "123", Name: "test"}
+	data, err := proc.Write(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Write() error after SetCodec: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("Write() should produce data after SetCodec")
+	}
+}
+
+// --- T -> T with no codec (contentType empty) ---
+
+func TestProcessor_T2T_NoCodecRequired(t *testing.T) {
+	proc, _ := NewProcessor[RedactUser]()
+	// No SetCodec — primary API should still work
+
+	user := RedactUser{ID: "123", Password: "secret", Token: "abc"}
+	result, err := proc.Send(context.Background(), user)
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+	if result.Password != testRedactedValue {
+		t.Errorf("Send() password = %q, want %q", result.Password, testRedactedValue)
 	}
 }
 

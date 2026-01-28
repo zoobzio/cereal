@@ -10,18 +10,20 @@ import (
 )
 
 func BenchmarkProcessor_Store_NoTransformation(b *testing.B) {
-	proc, _ := cereal.NewProcessor[codectest.SimpleUser](json.New())
+	proc, _ := cereal.NewProcessor[codectest.SimpleUser]()
+	proc.SetCodec(json.New())
 	user := &codectest.SimpleUser{ID: "123", Name: "Alice"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Store(context.Background(), user)
+		_, _ = proc.Write(context.Background(), user)
 	}
 }
 
 func BenchmarkProcessor_Store_WithEncryption(b *testing.B) {
-	proc, _ := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc, _ := cereal.NewProcessor[codectest.SanitizedUser]()
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(b))
+	proc.SetCodec(json.New())
 
 	user := &codectest.SanitizedUser{
 		ID:       "123",
@@ -33,14 +35,15 @@ func BenchmarkProcessor_Store_WithEncryption(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Store(context.Background(), user)
+		_, _ = proc.Write(context.Background(), user)
 	}
 }
 
 func BenchmarkProcessor_Load_WithDecryption(b *testing.B) {
-	proc, _ := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc, _ := cereal.NewProcessor[codectest.SanitizedUser]()
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(b))
 
+	proc.SetCodec(json.New())
 	user := &codectest.SanitizedUser{
 		ID:       "123",
 		Email:    "alice@example.com",
@@ -49,18 +52,19 @@ func BenchmarkProcessor_Load_WithDecryption(b *testing.B) {
 		Note:     "internal note",
 	}
 
-	data, _ := proc.Store(context.Background(), user)
+	data, _ := proc.Write(context.Background(), user)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Load(context.Background(), data)
+		_, _ = proc.Read(context.Background(), data)
 	}
 }
 
 func BenchmarkProcessor_Send_WithMaskingRedaction(b *testing.B) {
-	proc, _ := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc, _ := cereal.NewProcessor[codectest.SanitizedUser]()
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(b))
 
+	proc.SetCodec(json.New())
 	user := &codectest.SanitizedUser{
 		ID:       "123",
 		Email:    "alice@example.com",
@@ -71,7 +75,7 @@ func BenchmarkProcessor_Send_WithMaskingRedaction(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.Send(context.Background(), user)
+		_, _ = proc.Encode(context.Background(), user)
 	}
 }
 

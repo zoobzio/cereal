@@ -43,6 +43,9 @@ var (
 
 	// ErrInvalidKey indicates an encryption key has invalid size or format.
 	ErrInvalidKey = errors.New("invalid key")
+
+	// ErrMissingCodec indicates a codec operation was called without a configured codec.
+	ErrMissingCodec = errors.New("missing codec")
 )
 
 // ConfigError represents a processor configuration error.

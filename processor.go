@@ -89,8 +89,11 @@ type processorFieldPlan struct {
 // be configured via SetEncryptor before using Store/Load operations on fields
 // with encryption tags.
 //
+// A codec is not required for the primary T -> T API (Receive, Load, Store, Send).
+// Use SetCodec to enable the codec-aware methods (Decode, Read, Write, Encode).
+//
 // Use Validate() to check that all required capabilities are configured.
-func NewProcessor[T Cloner[T]](codec Codec) (*Processor[T], error) {
+func NewProcessor[T Cloner[T]]() (*Processor[T], error) {
 	// Get or build cached field plans
 	plans, err := getOrBuildPlans[T]()
 	if err != nil {
@@ -98,7 +101,6 @@ func NewProcessor[T Cloner[T]](codec Codec) (*Processor[T], error) {
 	}
 
 	p := &Processor[T]{
-		codec:        codec,
 		encryptors:   make(map[EncryptAlgo]Encryptor),
 		hashers:      builtinHashers(),
 		maskers:      builtinMaskers(),
@@ -109,8 +111,22 @@ func NewProcessor[T Cloner[T]](codec Codec) (*Processor[T], error) {
 		sendPlans:    plans.send,
 	}
 
-	emitProcessorCreated(context.Background(), codec.ContentType(), plans.typeName)
+	contentType := ""
+	if p.codec != nil {
+		contentType = p.codec.ContentType()
+	}
+	emitProcessorCreated(context.Background(), contentType, plans.typeName)
 	return p, nil
+}
+
+// SetCodec registers a codec for marshal/unmarshal operations.
+// Required for Decode, Read, Write, and Encode methods.
+// Returns the processor for chaining. Safe for concurrent use.
+func (p *Processor[T]) SetCodec(codec Codec) *Processor[T] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.codec = codec
+	return p
 }
 
 // SetEncryptor registers an encryptor for the given algorithm.
@@ -400,120 +416,175 @@ func (p *Processor[T]) validateCapabilities() error {
 	return nil
 }
 
-// Receive unmarshals data and applies receive context actions (hash).
+// Receive applies receive context actions (hash) to a value.
+// Returns a transformed clone, leaving the original untouched.
 // Use for data coming from external sources (API requests, events).
 //
 //nolint:dupl // Intentional parallel structure with Load for boundary operations
-func (p *Processor[T]) Receive(ctx context.Context, data []byte) (*T, error) {
+func (p *Processor[T]) Receive(ctx context.Context, obj T) (T, error) {
+	var zero T
 	if err := p.ensureValidated(); err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	start := time.Now()
-	emitReceiveStart(ctx, p.codec.ContentType(), p.typeName)
+	contentType := p.contentType()
+	emitReceiveStart(ctx, contentType, p.typeName)
 
 	var retErr error
 	defer func() {
-		emitReceiveComplete(ctx, p.codec.ContentType(), p.typeName,
+		emitReceiveComplete(ctx, contentType, p.typeName,
 			time.Since(start), len(p.receivePlans.hashFields), retErr)
 	}()
 
-	var obj T
-	if err := p.codec.Unmarshal(data, &obj); err != nil {
-		retErr = newCodecError(ErrUnmarshal, err)
-		return nil, retErr
-	}
+	clone := obj.Clone()
 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	// Check for override interface
-	if h, ok := any(&obj).(Hashable); ok {
+	if h, ok := any(&clone).(Hashable); ok {
 		if err := h.Hash(p.hashers); err != nil {
 			retErr = fmt.Errorf("hash: %w", err)
-			return nil, retErr
+			return zero, retErr
 		}
-		return &obj, nil
+		return clone, nil
 	}
 
 	// Apply hash actions via reflection
-	if err := p.applyHash(&obj); err != nil {
+	if err := p.applyHash(&clone); err != nil {
 		retErr = err
-		return nil, retErr
+		return zero, retErr
 	}
 
-	return &obj, nil
+	return clone, nil
 }
 
-// Load unmarshals data and applies load context actions (decrypt).
-// Use for data coming from storage (database, cache).
+// Decode unmarshals data and applies receive context actions (hash).
+// Requires a codec to be configured via SetCodec.
+// Use for data coming from external sources (API requests, events).
 //
-//nolint:dupl // Intentional parallel structure with Receive for boundary operations
-func (p *Processor[T]) Load(ctx context.Context, data []byte) (*T, error) {
+//nolint:dupl // Intentional parallel structure with Read for boundary operations
+func (p *Processor[T]) Decode(ctx context.Context, data []byte) (*T, error) {
 	if err := p.ensureValidated(); err != nil {
 		return nil, err
 	}
 
+	p.mu.RLock()
+	codec := p.codec
+	p.mu.RUnlock()
+
+	if codec == nil {
+		return nil, &ConfigError{Err: ErrMissingCodec}
+	}
+
+	var obj T
+	if err := codec.Unmarshal(data, &obj); err != nil {
+		return nil, newCodecError(ErrUnmarshal, err)
+	}
+
+	result, err := p.Receive(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Load applies load context actions (decrypt) to a value.
+// Returns a transformed clone, leaving the original untouched.
+// Use for data coming from storage (database, cache).
+//
+//nolint:dupl // Intentional parallel structure with Receive for boundary operations
+func (p *Processor[T]) Load(ctx context.Context, obj T) (T, error) {
+	var zero T
+	if err := p.ensureValidated(); err != nil {
+		return zero, err
+	}
+
 	start := time.Now()
-	emitLoadStart(ctx, p.codec.ContentType(), p.typeName)
+	contentType := p.contentType()
+	emitLoadStart(ctx, contentType, p.typeName)
 
 	var retErr error
 	defer func() {
-		emitLoadComplete(ctx, p.codec.ContentType(), p.typeName,
+		emitLoadComplete(ctx, contentType, p.typeName,
 			time.Since(start), len(p.loadPlans.decryptFields), retErr)
 	}()
 
-	var obj T
-	if err := p.codec.Unmarshal(data, &obj); err != nil {
-		retErr = newCodecError(ErrUnmarshal, err)
-		return nil, retErr
-	}
+	clone := obj.Clone()
 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	// Check for override interface
-	if d, ok := any(&obj).(Decryptable); ok {
+	if d, ok := any(&clone).(Decryptable); ok {
 		if err := d.Decrypt(p.encryptors); err != nil {
 			retErr = fmt.Errorf("decrypt: %w", err)
-			return nil, retErr
+			return zero, retErr
 		}
-		return &obj, nil
+		return clone, nil
 	}
 
 	// Apply decrypt actions via reflection
-	if err := p.applyDecrypt(&obj); err != nil {
+	if err := p.applyDecrypt(&clone); err != nil {
 		retErr = err
-		return nil, retErr
+		return zero, retErr
 	}
 
-	return &obj, nil
+	return clone, nil
 }
 
-// Store applies store context actions (encrypt) and marshals the result.
-// Use for data going to storage (database, cache).
-func (p *Processor[T]) Store(ctx context.Context, obj *T) ([]byte, error) {
+// Read unmarshals data and applies load context actions (decrypt).
+// Requires a codec to be configured via SetCodec.
+// Use for data coming from storage (database, cache).
+//
+//nolint:dupl // Intentional parallel structure with Decode for boundary operations
+func (p *Processor[T]) Read(ctx context.Context, data []byte) (*T, error) {
 	if err := p.ensureValidated(); err != nil {
 		return nil, err
 	}
 
-	start := time.Now()
-	emitStoreStart(ctx, p.codec.ContentType(), p.typeName)
+	p.mu.RLock()
+	codec := p.codec
+	p.mu.RUnlock()
 
-	var retErr error
-	var retData []byte
-	defer func() {
-		emitStoreComplete(ctx, p.codec.ContentType(), p.typeName,
-			len(retData), time.Since(start), len(p.storePlans.encryptFields), retErr)
-	}()
-
-	if obj == nil {
-		retData, retErr = p.codec.Marshal(nil)
-		return retData, retErr
+	if codec == nil {
+		return nil, &ConfigError{Err: ErrMissingCodec}
 	}
 
+	var obj T
+	if err := codec.Unmarshal(data, &obj); err != nil {
+		return nil, newCodecError(ErrUnmarshal, err)
+	}
+
+	result, err := p.Load(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Store applies store context actions (encrypt) to a value.
+// Returns a transformed clone, leaving the original untouched.
+// Use for data going to storage (database, cache).
+func (p *Processor[T]) Store(ctx context.Context, obj T) (T, error) {
+	var zero T
+	if err := p.ensureValidated(); err != nil {
+		return zero, err
+	}
+
+	start := time.Now()
+	contentType := p.contentType()
+	emitStoreStart(ctx, contentType, p.typeName)
+
+	var retErr error
+	defer func() {
+		emitStoreComplete(ctx, contentType, p.typeName,
+			0, time.Since(start), len(p.storePlans.encryptFields), retErr)
+	}()
+
 	// Clone to avoid mutating original
-	clone := (*obj).Clone()
+	clone := obj.Clone()
 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -522,57 +593,74 @@ func (p *Processor[T]) Store(ctx context.Context, obj *T) ([]byte, error) {
 	if e, ok := any(&clone).(Encryptable); ok {
 		if err := e.Encrypt(p.encryptors); err != nil {
 			retErr = fmt.Errorf("encrypt: %w", err)
-			return nil, retErr
+			return zero, retErr
 		}
-		var marshalErr error
-		retData, marshalErr = p.codec.Marshal(&clone)
-		if marshalErr != nil {
-			retErr = newCodecError(ErrMarshal, marshalErr)
-			return nil, retErr
-		}
-		return retData, nil
+		return clone, nil
 	}
 
 	// Apply encrypt actions via reflection
 	if err := p.applyEncrypt(&clone); err != nil {
 		retErr = err
-		return nil, retErr
+		return zero, retErr
 	}
 
-	var marshalErr error
-	retData, marshalErr = p.codec.Marshal(&clone)
-	if marshalErr != nil {
-		retErr = newCodecError(ErrMarshal, marshalErr)
-		return nil, retErr
-	}
-	return retData, nil
+	return clone, nil
 }
 
-// Send applies send context actions (mask, redact) and marshals the result.
-// Use for data going to external destinations (API responses, events).
-func (p *Processor[T]) Send(ctx context.Context, obj *T) ([]byte, error) {
+// Write applies store context actions (encrypt) and marshals the result.
+// Requires a codec to be configured via SetCodec.
+// Use for data going to storage (database, cache).
+func (p *Processor[T]) Write(ctx context.Context, obj *T) ([]byte, error) {
 	if err := p.ensureValidated(); err != nil {
 		return nil, err
 	}
 
+	p.mu.RLock()
+	codec := p.codec
+	p.mu.RUnlock()
+
+	if codec == nil {
+		return nil, &ConfigError{Err: ErrMissingCodec}
+	}
+
+	if obj == nil {
+		return codec.Marshal(nil)
+	}
+
+	result, err := p.Store(ctx, *obj)
+	if err != nil {
+		return nil, err
+	}
+
+	data, marshalErr := codec.Marshal(&result)
+	if marshalErr != nil {
+		return nil, newCodecError(ErrMarshal, marshalErr)
+	}
+	return data, nil
+}
+
+// Send applies send context actions (mask, redact) to a value.
+// Returns a transformed clone, leaving the original untouched.
+// Use for data going to external destinations (API responses, events).
+func (p *Processor[T]) Send(ctx context.Context, obj T) (T, error) {
+	var zero T
+	if err := p.ensureValidated(); err != nil {
+		return zero, err
+	}
+
 	start := time.Now()
-	emitSendStart(ctx, p.codec.ContentType(), p.typeName)
+	contentType := p.contentType()
+	emitSendStart(ctx, contentType, p.typeName)
 
 	var retErr error
-	var retData []byte
 	defer func() {
-		emitSendComplete(ctx, p.codec.ContentType(), p.typeName,
-			len(retData), time.Since(start),
+		emitSendComplete(ctx, contentType, p.typeName,
+			0, time.Since(start),
 			len(p.sendPlans.maskFields), len(p.sendPlans.redactFields), retErr)
 	}()
 
-	if obj == nil {
-		retData, retErr = p.codec.Marshal(nil)
-		return retData, retErr
-	}
-
 	// Clone to avoid mutating original
-	clone := (*obj).Clone()
+	clone := obj.Clone()
 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -581,12 +669,12 @@ func (p *Processor[T]) Send(ctx context.Context, obj *T) ([]byte, error) {
 	if m, ok := any(&clone).(Maskable); ok {
 		if err := m.Mask(p.maskers); err != nil {
 			retErr = fmt.Errorf("mask: %w", err)
-			return nil, retErr
+			return zero, retErr
 		}
 	} else {
 		if err := p.applyMask(&clone); err != nil {
 			retErr = err
-			return nil, retErr
+			return zero, retErr
 		}
 	}
 
@@ -594,21 +682,58 @@ func (p *Processor[T]) Send(ctx context.Context, obj *T) ([]byte, error) {
 	if r, ok := any(&clone).(Redactable); ok {
 		if err := r.Redact(); err != nil {
 			retErr = fmt.Errorf("redact: %w", err)
-			return nil, retErr
+			return zero, retErr
 		}
 	} else {
 		if err := p.applyRedact(&clone); err != nil {
 			retErr = err
-			return nil, retErr
+			return zero, retErr
 		}
 	}
 
-	retData, err := p.codec.Marshal(&clone)
-	if err != nil {
-		retErr = newCodecError(ErrMarshal, err)
-		return nil, retErr
+	return clone, nil
+}
+
+// Encode applies send context actions (mask, redact) and marshals the result.
+// Requires a codec to be configured via SetCodec.
+// Use for data going to external destinations (API responses, events).
+func (p *Processor[T]) Encode(ctx context.Context, obj *T) ([]byte, error) {
+	if err := p.ensureValidated(); err != nil {
+		return nil, err
 	}
-	return retData, nil
+
+	p.mu.RLock()
+	codec := p.codec
+	p.mu.RUnlock()
+
+	if codec == nil {
+		return nil, &ConfigError{Err: ErrMissingCodec}
+	}
+
+	if obj == nil {
+		return codec.Marshal(nil)
+	}
+
+	result, err := p.Send(ctx, *obj)
+	if err != nil {
+		return nil, err
+	}
+
+	data, marshalErr := codec.Marshal(&result)
+	if marshalErr != nil {
+		return nil, newCodecError(ErrMarshal, marshalErr)
+	}
+	return data, nil
+}
+
+// contentType returns the codec content type or empty string if no codec is set.
+func (p *Processor[T]) contentType() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.codec != nil {
+		return p.codec.ContentType()
+	}
+	return ""
 }
 
 // applyHash applies hash transformations via reflection.

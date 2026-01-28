@@ -67,11 +67,12 @@ func (u XMLUser) Clone() XMLUser { return u }
 
 // XML requires different struct tags, test separately
 func TestProcessor_StoreLoad_XML(t *testing.T) {
-	proc, err := cereal.NewProcessor[XMLUser](xml.New())
+	proc, err := cereal.NewProcessor[XMLUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
+	proc.SetCodec(xml.New())
 
 	original := &XMLUser{
 		ID:       "123",
@@ -81,13 +82,13 @@ func TestProcessor_StoreLoad_XML(t *testing.T) {
 	}
 
 	// Store encrypts email
-	data, err := proc.Store(context.Background(), original)
+	data, err := proc.Write(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store error: %v", err)
 	}
 
 	// Load decrypts email
-	restored, err := proc.Load(context.Background(), data)
+	restored, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
@@ -100,11 +101,12 @@ func TestProcessor_StoreLoad_XML(t *testing.T) {
 
 func TestProcessor_Send_XML(t *testing.T) {
 	xmlCodec := xml.New()
-	proc, err := cereal.NewProcessor[XMLUser](xmlCodec)
+	proc, err := cereal.NewProcessor[XMLUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
+	proc.SetCodec(xmlCodec)
 
 	original := &XMLUser{
 		ID:       "123",
@@ -114,7 +116,7 @@ func TestProcessor_Send_XML(t *testing.T) {
 	}
 
 	// Send masks email and redacts password/note
-	data, err := proc.Send(context.Background(), original)
+	data, err := proc.Encode(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -144,10 +146,11 @@ func TestProcessor_Send_XML(t *testing.T) {
 func testStoreLoad(t *testing.T, c cereal.Codec) {
 	t.Helper()
 
-	proc, err := cereal.NewProcessor[codectest.SanitizedUser](c)
+	proc, err := cereal.NewProcessor[codectest.SanitizedUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetCodec(c)
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &codectest.SanitizedUser{
@@ -159,13 +162,13 @@ func testStoreLoad(t *testing.T, c cereal.Codec) {
 	}
 
 	// Store encrypts email
-	data, err := proc.Store(context.Background(), original)
+	data, err := proc.Write(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store error: %v", err)
 	}
 
 	// Load decrypts email
-	restored, err := proc.Load(context.Background(), data)
+	restored, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
@@ -178,10 +181,11 @@ func testStoreLoad(t *testing.T, c cereal.Codec) {
 
 func TestProcessor_Send(t *testing.T) {
 	jsonCodec := json.New()
-	proc, err := cereal.NewProcessor[codectest.SanitizedUser](jsonCodec)
+	proc, err := cereal.NewProcessor[codectest.SanitizedUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetCodec(jsonCodec)
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &codectest.SanitizedUser{
@@ -193,7 +197,7 @@ func TestProcessor_Send(t *testing.T) {
 	}
 
 	// Send masks email/SSN and redacts password/note
-	data, err := proc.Send(context.Background(), original)
+	data, err := proc.Encode(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -241,15 +245,16 @@ type FullCycleUser struct {
 func (u FullCycleUser) Clone() FullCycleUser { return u }
 
 func TestProcessor_FullBoundaryCycle(t *testing.T) {
-	proc, err := cereal.NewProcessor[FullCycleUser](json.New())
+	proc, err := cereal.NewProcessor[FullCycleUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetCodec(json.New())
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	// Step 1: Receive (hash password)
 	input := `{"id":"123","password":"secret","email":"alice@example.com","secret":"my-secret"}`
-	received, err := proc.Receive(context.Background(), []byte(input))
+	received, err := proc.Decode(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("Receive error: %v", err)
 	}
@@ -263,13 +268,13 @@ func TestProcessor_FullBoundaryCycle(t *testing.T) {
 	}
 
 	// Step 2: Store (encrypt email)
-	stored, err := proc.Store(context.Background(), received)
+	stored, err := proc.Write(context.Background(), received)
 	if err != nil {
 		t.Fatalf("Store error: %v", err)
 	}
 
 	// Step 3: Load (decrypt email)
-	loaded, err := proc.Load(context.Background(), stored)
+	loaded, err := proc.Read(context.Background(), stored)
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
@@ -285,7 +290,7 @@ func TestProcessor_FullBoundaryCycle(t *testing.T) {
 	}
 
 	// Step 4: Send (mask email, redact secret)
-	sent, err := proc.Send(context.Background(), loaded)
+	sent, err := proc.Encode(context.Background(), loaded)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -309,10 +314,11 @@ func TestProcessor_FullBoundaryCycle(t *testing.T) {
 // --- Concurrent processor operations ---
 
 func TestProcessor_ConcurrentOperations(t *testing.T) {
-	proc, err := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc, err := cereal.NewProcessor[codectest.SanitizedUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetCodec(json.New())
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	const goroutines = 50
@@ -327,7 +333,7 @@ func TestProcessor_ConcurrentOperations(t *testing.T) {
 	}
 
 	// First store to get encrypted data for Load operations
-	storedData, err := proc.Store(context.Background(), user)
+	storedData, err := proc.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("Initial Store error: %v", err)
 	}
@@ -335,26 +341,26 @@ func TestProcessor_ConcurrentOperations(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		// Concurrent Store
 		go func() {
-			_, err := proc.Store(context.Background(), user)
+			_, err := proc.Write(context.Background(), user)
 			errs <- err
 		}()
 
 		// Concurrent Load
 		go func() {
-			_, err := proc.Load(context.Background(), storedData)
+			_, err := proc.Read(context.Background(), storedData)
 			errs <- err
 		}()
 
 		// Concurrent Send
 		go func() {
-			_, err := proc.Send(context.Background(), user)
+			_, err := proc.Encode(context.Background(), user)
 			errs <- err
 		}()
 
 		// Concurrent Receive
 		go func() {
 			input := `{"id":"123","email":"test@example.com","password":"pass","ssn":"111-22-3333","note":"n"}`
-			_, err := proc.Receive(context.Background(), []byte(input))
+			_, err := proc.Decode(context.Background(), []byte(input))
 			errs <- err
 		}()
 	}
@@ -402,10 +408,11 @@ func (u ComplexUser) Clone() ComplexUser {
 }
 
 func TestProcessor_ComplexNestedStructure(t *testing.T) {
-	proc, err := cereal.NewProcessor[ComplexUser](json.New())
+	proc, err := cereal.NewProcessor[ComplexUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetCodec(json.New())
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &ComplexUser{
@@ -424,12 +431,12 @@ func TestProcessor_ComplexNestedStructure(t *testing.T) {
 	}
 
 	// Test Store/Load cycle
-	stored, err := proc.Store(context.Background(), original)
+	stored, err := proc.Write(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store error: %v", err)
 	}
 
-	loaded, err := proc.Load(context.Background(), stored)
+	loaded, err := proc.Read(context.Background(), stored)
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
@@ -439,7 +446,7 @@ func TestProcessor_ComplexNestedStructure(t *testing.T) {
 	}
 
 	// Test Send transformations on nested fields
-	sent, err := proc.Send(context.Background(), loaded)
+	sent, err := proc.Encode(context.Background(), loaded)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -467,10 +474,11 @@ func TestProcessor_ComplexNestedStructure(t *testing.T) {
 }
 
 func TestProcessor_ComplexNestedStructure_NilPointer(t *testing.T) {
-	proc, err := cereal.NewProcessor[ComplexUser](json.New())
+	proc, err := cereal.NewProcessor[ComplexUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetCodec(json.New())
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &ComplexUser{
@@ -480,7 +488,7 @@ func TestProcessor_ComplexNestedStructure_NilPointer(t *testing.T) {
 	}
 
 	// Should handle nil pointer gracefully
-	sent, err := proc.Send(context.Background(), original)
+	sent, err := proc.Encode(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -504,16 +512,18 @@ func TestProcessor_MultipleProcessorsSameType(t *testing.T) {
 	enc1, _ := cereal.AES(key1)
 	enc2, _ := cereal.AES(key2)
 
-	proc1, err := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc1, err := cereal.NewProcessor[codectest.SanitizedUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc1.SetCodec(json.New())
 	proc1.SetEncryptor(cereal.EncryptAES, enc1)
 
-	proc2, err := cereal.NewProcessor[codectest.SanitizedUser](json.New())
+	proc2, err := cereal.NewProcessor[codectest.SanitizedUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc2.SetCodec(json.New())
 	proc2.SetEncryptor(cereal.EncryptAES, enc2)
 
 	user := &codectest.SanitizedUser{
@@ -522,19 +532,19 @@ func TestProcessor_MultipleProcessorsSameType(t *testing.T) {
 	}
 
 	// Store with proc1
-	data1, err := proc1.Store(context.Background(), user)
+	data1, err := proc1.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("proc1.Store error: %v", err)
 	}
 
 	// Store with proc2 (different key)
-	data2, err := proc2.Store(context.Background(), user)
+	data2, err := proc2.Write(context.Background(), user)
 	if err != nil {
 		t.Fatalf("proc2.Store error: %v", err)
 	}
 
 	// Load with same processor should work
-	loaded1, err := proc1.Load(context.Background(), data1)
+	loaded1, err := proc1.Read(context.Background(), data1)
 	if err != nil {
 		t.Fatalf("proc1.Load error: %v", err)
 	}
@@ -542,7 +552,7 @@ func TestProcessor_MultipleProcessorsSameType(t *testing.T) {
 		t.Errorf("proc1.Load Email = %q, want %q", loaded1.Email, user.Email)
 	}
 
-	loaded2, err := proc2.Load(context.Background(), data2)
+	loaded2, err := proc2.Read(context.Background(), data2)
 	if err != nil {
 		t.Fatalf("proc2.Load error: %v", err)
 	}
@@ -551,9 +561,9 @@ func TestProcessor_MultipleProcessorsSameType(t *testing.T) {
 	}
 
 	// Cross-load should fail (different keys)
-	_, err = proc1.Load(context.Background(), data2)
+	_, err = proc1.Read(context.Background(), data2)
 	if err == nil {
-		t.Error("proc1.Load(data2) should fail (different encryption key)")
+		t.Error("proc1.Read(data2) should fail (different encryption key)")
 	}
 }
 
@@ -578,10 +588,11 @@ func testStoreLoadBSON(t *testing.T) {
 
 	// Import bson package
 	bsonCodec := bson.New()
-	proc, err := cereal.NewProcessor[BSONUser](bsonCodec)
+	proc, err := cereal.NewProcessor[BSONUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor error: %v", err)
 	}
+	proc.SetCodec(bsonCodec)
 	proc.SetEncryptor(cereal.EncryptAES, codectest.TestEncryptor(t))
 
 	original := &BSONUser{
@@ -591,13 +602,13 @@ func testStoreLoadBSON(t *testing.T) {
 	}
 
 	// Store encrypts email
-	data, err := proc.Store(context.Background(), original)
+	data, err := proc.Write(context.Background(), original)
 	if err != nil {
 		t.Fatalf("Store error: %v", err)
 	}
 
 	// Load decrypts email
-	restored, err := proc.Load(context.Background(), data)
+	restored, err := proc.Read(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}

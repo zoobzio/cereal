@@ -267,81 +267,86 @@ func (u *redactErrorUser) Redact() error {
 // --- Interface error propagation integration tests ---
 
 func TestEncryptable_ErrorPropagation(t *testing.T) {
-	proc, err := cereal.NewProcessor[encryptErrorUser](&testCodec{})
+	proc, err := cereal.NewProcessor[encryptErrorUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
+	proc.SetCodec(&testCodec{})
 
 	user := &encryptErrorUser{Email: "test@example.com"}
-	_, err = proc.Store(t.Context(), user)
+	_, err = proc.Write(t.Context(), user)
 	if err == nil {
-		t.Error("Store() should propagate Encryptable error")
+		t.Error("Write() should propagate Encryptable error")
 	}
 	if err.Error() != "encrypt: custom encrypt error" {
-		t.Errorf("Store() error = %q, want 'encrypt: custom encrypt error'", err.Error())
+		t.Errorf("Write() error = %q, want 'encrypt: custom encrypt error'", err.Error())
 	}
 }
 
 func TestDecryptable_ErrorPropagation(t *testing.T) {
-	proc, err := cereal.NewProcessor[decryptErrorUser](&testCodec{})
+	proc, err := cereal.NewProcessor[decryptErrorUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
+	proc.SetCodec(&testCodec{})
 
 	input := `{"email":"encrypted-data"}`
-	_, err = proc.Load(t.Context(), []byte(input))
+	_, err = proc.Read(t.Context(), []byte(input))
 	if err == nil {
-		t.Error("Load() should propagate Decryptable error")
+		t.Error("Read() should propagate Decryptable error")
 	}
 	if err.Error() != "decrypt: custom decrypt error" {
-		t.Errorf("Load() error = %q, want 'decrypt: custom decrypt error'", err.Error())
+		t.Errorf("Read() error = %q, want 'decrypt: custom decrypt error'", err.Error())
 	}
 }
 
 func TestHashable_ErrorPropagation(t *testing.T) {
-	proc, err := cereal.NewProcessor[hashErrorUser](&testCodec{})
+	proc, err := cereal.NewProcessor[hashErrorUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
+	proc.SetCodec(&testCodec{})
 
 	input := `{"password":"secret"}`
-	_, err = proc.Receive(t.Context(), []byte(input))
+	_, err = proc.Decode(t.Context(), []byte(input))
 	if err == nil {
-		t.Error("Receive() should propagate Hashable error")
+		t.Error("Decode() should propagate Hashable error")
 	}
 	if err.Error() != "hash: custom hash error" {
-		t.Errorf("Receive() error = %q, want 'hash: custom hash error'", err.Error())
+		t.Errorf("Decode() error = %q, want 'hash: custom hash error'", err.Error())
 	}
 }
 
 func TestMaskable_ErrorPropagation(t *testing.T) {
-	proc, err := cereal.NewProcessor[maskErrorUser](&testCodec{})
+	proc, err := cereal.NewProcessor[maskErrorUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
+	proc.SetCodec(&testCodec{})
 
 	user := &maskErrorUser{Email: "test@example.com"}
-	_, err = proc.Send(t.Context(), user)
+	_, err = proc.Encode(t.Context(), user)
 	if err == nil {
-		t.Error("Send() should propagate Maskable error")
+		t.Error("Encode() should propagate Maskable error")
 	}
 	if err.Error() != "mask: custom mask error" {
-		t.Errorf("Send() error = %q, want 'mask: custom mask error'", err.Error())
+		t.Errorf("Encode() error = %q, want 'mask: custom mask error'", err.Error())
 	}
 }
 
 func TestRedactable_ErrorPropagation(t *testing.T) {
-	proc, err := cereal.NewProcessor[redactErrorUser](&testCodec{})
+	proc, err := cereal.NewProcessor[redactErrorUser]()
 	if err != nil {
 		t.Fatalf("NewProcessor() error: %v", err)
 	}
+	proc.SetCodec(&testCodec{})
 
 	user := &redactErrorUser{Secret: "secret-data"}
-	_, err = proc.Send(t.Context(), user)
+	_, err = proc.Encode(t.Context(), user)
 	if err == nil {
-		t.Error("Send() should propagate Redactable error")
+		t.Error("Encode() should propagate Redactable error")
 	}
 	if err.Error() != "redact: custom redact error" {
-		t.Errorf("Send() error = %q, want 'redact: custom redact error'", err.Error())
+		t.Errorf("Encode() error = %q, want 'redact: custom redact error'", err.Error())
 	}
 }
